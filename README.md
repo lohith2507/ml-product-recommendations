@@ -7,7 +7,19 @@ An AI-powered e-commerce recommendation engine combining **Collaborative Filteri
 ![Surprise](https://img.shields.io/badge/Surprise-SVD-purple)
 ![Groq](https://img.shields.io/badge/Groq-Llama_3.3-orange)
 
+## 🖥️ Walkthrough Demo
+Below is a demonstration showing how the recommendation system and user dashboard work:
+
+![RecommendAI Walkthrough](demo.webp)
+
+1. **User Personalization**: Selecting a user from the navbar dropdown loads their personalized collaborative filtering recommendations.
+2. **Algorithm Comparison**: Users can switch between Collaborative Filtering (matrix factorization), Content-Based (text similarity), and AI Hybrid (LLM re-ranking) algorithms dynamically.
+3. **Analytics Dashboard**: Real-time click-through rate (CTR) charts compare the performance of each algorithm.
+4. **AI Shopping Chatbot**: An interactive chatbot widget allows conversational product discovery, fetching relevant recommendations on the fly.
+5. **Marketing Campaign Generator**: Admins can generate highly tailored marketing copy based on the user's purchase history and profile.
+
 ## ✨ Features
+
 
 - **🤝 Collaborative Filtering** — SVD matrix factorization with GridSearchCV hyperparameter tuning
 - **📝 Content-Based Filtering** — TF-IDF vectorization with cosine similarity

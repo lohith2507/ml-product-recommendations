@@ -6,7 +6,21 @@ and serves both the API and the frontend dashboard.
 """
 
 import os
+import sys
 from contextlib import asynccontextmanager
+
+# Reconfigure stdout/stderr to use UTF-8 to prevent emoji print errors on Windows
+if hasattr(sys.stdout, 'reconfigure') and sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+if hasattr(sys.stderr, 'reconfigure') and sys.stderr.encoding != 'utf-8':
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
