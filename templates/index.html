@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AI-powered e-commerce product recommendation system with collaborative filtering, content-based filtering, and LLM hybrid approaches.">
+    <title>RecommendAI — Smart Product Discovery</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+    <!-- Top Navbar -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand" onclick="switchSection('recommendations')">
+                <div class="logo-icon">🧠</div>
+                <span>RecommendAI</span>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="search-bar">
+                <select id="searchCategory">
+                    <option value="all">All Categories</option>
+                </select>
+                <input type="text" id="searchInput" placeholder="Search for products, brands and more..." onkeydown="if(event.key === 'Enter') searchProducts()">
+                <button onclick="document.getElementById('visualSearchInput').click()" title="Search by Image" style="background:#e3e6e6; border-right:1px solid #ccc;">📷</button>
+                <input type="file" id="visualSearchInput" style="display:none;" accept="image/*" onchange="performVisualSearch(this)">
+                <button onclick="searchProducts()">🔍</button>
+            </div>
+            
+            <div class="cart-toggle-wrapper" onclick="toggleCart()" style="cursor:pointer; display:flex; flex-direction:column; align-items:center; color:white; padding: 4px 12px; border:1px solid transparent; border-radius:4px;">
+                <div style="position:relative;">
+                    <span style="font-size:1.4rem;">🛒</span>
+                    <span id="cartCountBadge" style="position:absolute; top:-5px; right:-10px; background:var(--amazon-orange); color:var(--text-dark); font-size:0.7rem; font-weight:bold; border-radius:50%; padding:2px 6px;">0</span>
+                </div>
+                <span style="font-size:0.75rem; font-weight:600;">Cart</span>
+            </div>
+
+            <div class="user-selector-wrapper">
+                <label for="userSelect">Hello, select user</label>
+                <select id="userSelect" class="user-selector" onchange="onUserChange()">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Sub-navbar -->
+    <div class="sub-navbar">
+        <div class="container">
+            <ul class="nav-links">
+                <a class="active" data-section="recommendations" onclick="switchSection('recommendations')">
+                    🎯 Recommendations
+                </a>
+                <a data-section="products" onclick="switchSection('products')">
+                    📦 All Products
+                </a>
+                <a data-section="analytics" onclick="switchSection('analytics')">
+                    📊 Analytics
+                </a>
+                <a data-section="abtest" onclick="switchSection('abtest')">
+                    🧪 A/B Testing
+                </a>
+                <a data-section="admin" onclick="switchSection('admin')">
+                    ⚙️ Admin Dashboard
+                </a>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Hero Banner -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-banner">
+                <div class="hero-text">
+                    <h1>AI-Powered Product Recommendations</h1>
+                    <p>Personalized picks using Collaborative Filtering, Content-Based Analysis &amp; AI Hybrid — powered by real Amazon data.</p>
+                </div>
+                <div class="hero-stats">
+                    <div class="hero-stat">
+                        <div class="stat-value" id="heroProducts">—</div>
+                        <div class="stat-label">Products</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="stat-value" id="heroUsers">—</div>
+                        <div class="stat-label">Users</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="stat-value" id="heroReviews">—</div>
+                        <div class="stat-label">Reviews</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="stat-value" id="heroAlgorithms">3</div>
+                        <div class="stat-label">AI Engines</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <main class="container">
+
+        <!-- Recommendations Section -->
+        <section id="section-recommendations" class="section active">
+
+            <div class="tab-container">
+                <button class="tab-btn active" data-algo="collaborative" onclick="switchAlgoTab('collaborative')">
+                    🤝 Collaborative Filtering
+                </button>
+                <button class="tab-btn" data-algo="content" onclick="switchAlgoTab('content')">
+                    📝 Content-Based
+                </button>
+                <button class="tab-btn" data-algo="hybrid" onclick="switchAlgoTab('hybrid')">
+                    🧠 AI Hybrid
+                </button>
+            </div>
+
+            <!-- Recommendations Carousel -->
+            <div class="carousel-section">
+                <h3 id="recSectionTitle">Recommended for You</h3>
+                <div class="carousel-wrapper">
+                    <div class="carousel-track" id="recommendationsContainer">
+                        <div class="loading-container" style="width:100%;">
+                            <div class="spinner"></div>
+                            <p class="loading-text">Select a user to see recommendations</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Also Bought Section -->
+            <div id="alsoBoughtSection" class="also-bought-section" style="display: none;">
+                <div class="carousel-section">
+                    <h3>Customers Who Bought This Item Also Bought</h3>
+                    <div class="carousel-wrapper">
+                        <div class="carousel-track" id="alsoBoughtContainer"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Products Section -->
+        <section id="section-products" class="section">
+            <div class="section-header">
+                <h2 class="section-title">📦 Product Catalog</h2>
+            </div>
+            <div class="tab-container" style="margin-bottom: 16px; flex-wrap: wrap;">
+                <button class="tab-btn active" data-category="all" onclick="filterCategory('all')">All</button>
+            </div>
+            <div id="productsContainer" class="product-grid"></div>
+        </section>
+
+        <!-- Analytics Section -->
+        <section id="section-analytics" class="section">
+            <div class="section-header">
+                <h2 class="section-title">📊 Performance Analytics</h2>
+            </div>
+            <div class="analytics-grid" id="analyticsCards"></div>
+            <div class="chart-container">
+                <h3>Click-Through Rate by Algorithm</h3>
+                <div class="chart-wrapper"><canvas id="ctrChart"></canvas></div>
+            </div>
+            <div class="chart-container">
+                <h3>CTR Trends Over Time</h3>
+                <div class="chart-wrapper"><canvas id="ctrTimelineChart"></canvas></div>
+            </div>
+        </section>
+
+        <!-- A/B Testing Section -->
+        <section id="section-abtest" class="section">
+            <div class="section-header">
+                <h2 class="section-title">🧪 A/B Test Results</h2>
+            </div>
+            <div id="abTestResultsContainer">
+                <div class="loading-container">
+                    <div class="spinner"></div>
+                    <p class="loading-text">Loading A/B test results...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Admin Dashboard Section -->
+        <section id="section-admin" class="section">
+            <div class="section-header">
+                <h2 class="section-title">⚙️ Admin Dashboard - Revenue & CTR by Algorithm</h2>
+            </div>
+            <div class="glass-card">
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Algorithm</th>
+                            <th>Impressions</th>
+                            <th>Clicks</th>
+                            <th>CTR (%)</th>
+                            <th>Total Revenue ($)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminStatsBody">
+                        <tr><td colspan="5" style="text-align:center;">Loading admin stats...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="section-header" style="margin-top:40px;">
+                <h2 class="section-title">✉️ Marketing Automation</h2>
+            </div>
+            <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
+                <p>Generate highly personalized marketing emails for users based on their recent preferences and interactions.</p>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <label><strong>Target User:</strong></label>
+                    <select id="marketingUserSelect" class="form-control" style="padding:8px; border-radius:4px; border:1px solid #ccc; min-width:200px;">
+                        <!-- Will be populated dynamically -->
+                    </select>
+                    <button class="chat-send-btn" onclick="generateMarketingEmail()" style="border-radius:4px; padding:8px 16px;">✨ Generate Campaign</button>
+                </div>
+                <div id="marketingEmailOutput" style="display:none; background:#f9f9f9; padding:20px; border:1px solid #e0e0e0; border-radius:8px; margin-top:16px; white-space:pre-wrap; font-family:var(--font-primary);"></div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>RecommendAI — Built with FastAPI, Surprise SVD, TF-IDF, and Groq Llama 3.3 | Powered by real Amazon product data</p>
+    </footer>
+
+    <!-- Chatbot -->
+    <button class="chatbot-toggle" id="chatToggle" onclick="toggleChat()" title="AI Shopping Assistant">💬</button>
+
+    <div class="chatbot-panel" id="chatPanel">
+        <div class="chat-header">
+            <div class="chat-avatar">🤖</div>
+            <div class="chat-info">
+                <h4>AI Shopping Assistant</h4>
+                <p>● Online — Powered by Llama 3.3</p>
+            </div>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-message assistant">
+                Hi! I'm your AI shopping assistant. Tell me what you're looking for and I'll find the perfect products for you!
+            </div>
+        </div>
+        <div id="chatActiveContext" style="display:none; padding:8px 12px; background:#fff; border-top:1px solid #e0e0e0; font-size:0.75rem; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center;">
+            <div id="chatContextTags" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+            <button onclick="clearChatMemory()" style="background:none; border:none; color:var(--amazon-red); cursor:pointer; font-size:0.7rem; font-weight:bold;">Clear Memory</button>
+        </div>
+        <div class="chat-input-wrapper">
+            <input type="text" class="chat-input" id="chatInput"
+                   placeholder="What are you looking for?"
+                   onkeydown="if(event.key==='Enter') sendChat()">
+            <button class="chat-voice-btn" onclick="toggleVoiceRecording()" id="chatVoiceBtn" title="Hold to record voice">🎤</button>
+            <button class="chat-send-btn" onclick="sendChat()" id="chatSendBtn">➤</button>
+        </div>
+    </div>
+
+    <!-- Shopping Cart Sidebar -->
+    <div id="cartSidebar" class="chatbot-panel" style="width:450px; right:-470px; display:flex; transition:right 0.3s ease;">
+        <div class="chat-header">
+            <div class="chat-info">
+                <h4>🛒 Shopping Cart</h4>
+            </div>
+            <button onclick="toggleCart()" style="background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;">&times;</button>
+        </div>
+        <div id="cartItems" style="flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; background:var(--bg-light);">
+            <div class="empty-state"><p>Your cart is empty.</p></div>
+        </div>
+        <div style="padding:16px; background:white; border-top:1px solid var(--border-light);">
+            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.1rem; margin-bottom:12px;">
+                <span>Subtotal</span>
+                <span id="cartSubtotal">$0.00</span>
+            </div>
+            <button class="chat-send-btn" style="width:100%; border-radius:8px;">Proceed to Checkout</button>
+        </div>
+        <div style="padding:12px; background:var(--bg-light); border-top:1px solid var(--border-light); max-height:200px; overflow-y:auto;">
+            <h5 style="margin-bottom:8px; font-size:0.85rem; color:var(--text-medium);">Frequently Bought Together</h5>
+            <div id="cartRecsContainer" style="display:flex; flex-direction:column; gap:8px;">
+                <p style="font-size:0.75rem; color:var(--text-light);">Add items to cart to see recommendations.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Review Summary Modal -->
+    <div id="reviewModal" class="modal" style="display:none; position:fixed; z-index:2000; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5);">
+        <div class="modal-content" style="background-color:#fff; margin:10% auto; padding:20px; border-radius:8px; width:80%; max-width:600px; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="margin:0;">✨ AI Review Summary</h3>
+                <span class="close-modal" onclick="document.getElementById('reviewModal').style.display='none'" style="cursor:pointer; font-size:1.5rem;">&times;</span>
+            </div>
+            <div id="reviewModalBody">
+                <div class="loading-container"><div class="spinner"></div><p>Reading reviews...</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/recommendations.js"></script>
+    <script src="/static/js/chatbot.js"></script>
+    <script src="/static/js/analytics.js"></script>
+
+</body>
+</html>
