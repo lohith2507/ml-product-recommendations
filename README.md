@@ -20,9 +20,9 @@ Below is a demonstration showing how the recommendation system and user dashboar
 
 ## ✨ Features
 
-
 - **🤝 Collaborative Filtering** — SVD matrix factorization with GridSearchCV hyperparameter tuning
 - **📝 Content-Based Filtering** — TF-IDF vectorization with cosine similarity
+- **🔎 Semantic Search** — FAISS + Sentence Transformers for natural-language product lookup
 - **🧠 AI Hybrid Recommender** — LLM re-ranking with personalized explanations via Groq API
 - **🛒 "Also Bought" Recommendations** — Co-purchase pattern detection
 - **💬 AI Shopping Chatbot** — Conversational product discovery powered by Llama 3.3
@@ -49,12 +49,18 @@ python setup_data.py
 python train_models.py
 ```
 
-### 4. Start the Server
+### 4. Build the Semantic Vector Index (optional but recommended)
+Builds a FAISS index over product text so `/api/search/semantic` works. Requires the DB from step 3; the first run downloads the embedding model.
+```bash
+python setup_vector_db.py
+```
+
+### 5. Start the Server
 ```bash
 uvicorn app:app --reload --port 8000
 ```
 
-### 5. Open Dashboard
+### 6. Open Dashboard
 Visit [http://localhost:8000](http://localhost:8000)
 
 API docs at [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -65,6 +71,7 @@ API docs at [http://localhost:8000/docs](http://localhost:8000/docs)
 ml-product-recommendations/
 ├── app.py                    # FastAPI main application
 ├── setup_data.py             # Synthetic dataset generator
+├── setup_vector_db.py        # FAISS semantic index builder
 ├── train_models.py           # Model training orchestrator
 ├── database/
 │   ├── models.py             # SQLite schema & connection manager
@@ -72,6 +79,7 @@ ml-product-recommendations/
 ├── recommenders/
 │   ├── collaborative.py      # Surprise SVD engine
 │   ├── content_based.py      # TF-IDF engine
+│   ├── semantic.py           # FAISS semantic search
 │   ├── llm_hybrid.py         # Groq LLM hybrid engine
 │   ├── ab_testing.py         # A/B testing engine
 │   └── __init__.py
@@ -97,6 +105,7 @@ ml-product-recommendations/
 | `GET` | `/api/users` | List users |
 | `GET` | `/api/users/{id}` | User profile |
 | `GET` | `/api/products` | Browse products |
+| `GET` | `/api/search/semantic` | Semantic product search (`?q=...`) |
 | `GET` | `/api/recommend/collaborative/{user_id}` | CF recommendations |
 | `GET` | `/api/recommend/content/{user_id}` | CB recommendations |
 | `GET` | `/api/recommend/hybrid/{user_id}` | LLM hybrid recommendations |
@@ -110,6 +119,7 @@ ml-product-recommendations/
 - **Data Layer**: SQLite with synthetic e-commerce data (500 products, 200 users, ~5K reviews)
 - **CF Engine**: Surprise SVD with GridSearchCV tuning (RMSE < 1.0)
 - **CB Engine**: TF-IDF + Cosine Similarity on product text (weighted: category 3x, title 2x)
+- **Semantic Engine**: Sentence Transformers (`all-MiniLM-L6-v2`) + FAISS for query-to-product search
 - **LLM Engine**: Groq API (Llama 3.3 70B) for re-ranking + natural language explanations
 - **A/B Testing**: Chi-squared significance testing across 4 algorithm groups
 
