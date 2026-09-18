@@ -38,9 +38,16 @@ pip install -r requirements.txt
 ```
 
 ### 2. Set Up Environment
-Create a `.env` file with your Groq API key:
+Create a `.env` file. At least one LLM key is required for hybrid recommendations and the chatbot:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY` | Recommended | Groq API key (default model: `llama-3.1-8b-instant`) |
+| `NVIDIA_API_KEY` | Optional | NVIDIA NIM key; preferred when set (model: `meta/llama-3.3-70b-instruct`) |
+
 ```
 GROQ_API_KEY=your_groq_api_key_here
+# NVIDIA_API_KEY=your_nvidia_api_key_here
 ```
 
 ### 3. Generate Data & Train Models
@@ -122,6 +129,18 @@ ml-product-recommendations/
 - **Semantic Engine**: Sentence Transformers (`all-MiniLM-L6-v2`) + FAISS for query-to-product search
 - **LLM Engine**: Groq API (Llama 3.3 70B) for re-ranking + natural language explanations
 - **A/B Testing**: Chi-squared significance testing across 4 algorithm groups
+
+## 🧪 Optional: Fine-Tune an E-commerce LLM
+
+Generate a chat-style dataset from highly rated reviews, then fine-tune Llama 3.1 8B on Colab with Unsloth:
+
+```bash
+# Requires recommendation.db from setup_data.py / train_models.py
+python generate_finetuning_data.py
+# Writes finetune_dataset.jsonl
+```
+
+Open `finetune_colab.ipynb` in Google Colab (Runtime → T4 GPU), upload `finetune_dataset.jsonl`, and run the cells.
 
 ## 📄 License
 
