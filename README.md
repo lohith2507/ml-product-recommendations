@@ -80,6 +80,9 @@ ml-product-recommendations/
 ├── setup_data.py             # Synthetic dataset generator
 ├── setup_vector_db.py        # FAISS semantic index builder
 ├── train_models.py           # Model training orchestrator
+├── generate_finetuning_data.py  # Review → chat dataset for fine-tuning
+├── finetune_colab.ipynb      # Unsloth Colab notebook (Llama 3.1 8B)
+├── requirements.txt          # Python dependencies
 ├── database/
 │   ├── models.py             # SQLite schema & connection manager
 │   └── __init__.py
@@ -113,11 +116,15 @@ ml-product-recommendations/
 | `GET` | `/api/users/{id}` | User profile |
 | `GET` | `/api/products` | Browse products |
 | `GET` | `/api/search/semantic` | Semantic product search (`?q=...`) |
+| `POST` | `/api/search/visual` | Visual product search (image upload) |
+| `GET` | `/api/products/{product_id}` | Single product detail |
 | `GET` | `/api/recommend/collaborative/{user_id}` | CF recommendations |
 | `GET` | `/api/recommend/content/{user_id}` | CB recommendations |
 | `GET` | `/api/recommend/hybrid/{user_id}` | LLM hybrid recommendations |
+| `POST` | `/api/recommend/cart` | Cart-aware recommendations |
 | `GET` | `/api/recommend/also-bought/{product_id}` | Co-purchase recommendations |
 | `POST` | `/api/chat` | AI chatbot |
+| `GET` | `/api/admin/generate-email` | Marketing email copy for a user |
 | `GET` | `/api/analytics/ctr` | CTR analytics |
 | `GET` | `/api/analytics/ab-test` | A/B test results |
 
