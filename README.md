@@ -82,6 +82,10 @@ ml-product-recommendations/
 ├── train_models.py           # Model training orchestrator
 ├── generate_finetuning_data.py  # Review → chat dataset for fine-tuning
 ├── finetune_colab.ipynb      # Unsloth Colab notebook (Llama 3.1 8B)
+├── finetune_dataset.jsonl    # Generated fine-tuning chat dataset
+├── demo.webp                 # Walkthrough demo animation
+├── dataset/
+│   └── amazon_categories.csv # Category seed data
 ├── requirements.txt          # Python dependencies
 ├── database/
 │   ├── models.py             # SQLite schema & connection manager
@@ -115,18 +119,24 @@ ml-product-recommendations/
 | `GET` | `/api/users` | List users |
 | `GET` | `/api/users/{id}` | User profile |
 | `GET` | `/api/products` | Browse products |
+| `GET` | `/api/products/categories/list` | Product categories with counts |
 | `GET` | `/api/search/semantic` | Semantic product search (`?q=...`) |
 | `POST` | `/api/search/visual` | Visual product search (image upload) |
 | `GET` | `/api/products/{product_id}` | Single product detail |
+| `GET` | `/api/products/{product_id}/summary` | LLM review summary (pros/cons) |
 | `GET` | `/api/recommend/collaborative/{user_id}` | CF recommendations |
 | `GET` | `/api/recommend/content/{user_id}` | CB recommendations |
 | `GET` | `/api/recommend/hybrid/{user_id}` | LLM hybrid recommendations |
 | `POST` | `/api/recommend/cart` | Cart-aware recommendations |
 | `GET` | `/api/recommend/also-bought/{product_id}` | Co-purchase recommendations |
 | `POST` | `/api/chat` | AI chatbot |
+| `POST` | `/api/chat/audio` | Voice chatbot (Whisper transcription) |
 | `GET` | `/api/admin/generate-email` | Marketing email copy for a user |
+| `GET` | `/api/admin/stats` | Revenue, clicks, impressions by algorithm |
 | `GET` | `/api/analytics/ctr` | CTR analytics |
+| `GET` | `/api/analytics/ctr-timeline` | CTR trends over time (`?days=...`) |
 | `GET` | `/api/analytics/ab-test` | A/B test results |
+| `POST` | `/api/simulate/click` | Record a recommendation click |
 
 ## 🏗️ Architecture
 
