@@ -1,11 +1,11 @@
 # 🧠 AI-Based Product Recommendation System
 
-An AI-powered e-commerce recommendation engine combining **Collaborative Filtering** (Surprise SVD), **Content-Based Filtering** (TF-IDF), and **LLM-Powered Hybrid Recommendations** (Groq/Llama 3.3) — with a premium dark-mode web dashboard, analytics, and AI chatbot.
+An AI-powered e-commerce recommendation engine combining **Collaborative Filtering** (Surprise SVD), **Content-Based Filtering** (TF-IDF), and **LLM-Powered Hybrid Recommendations** (Groq Llama 3.1, with optional NVIDIA Llama 3.3 fallback) — with a premium dark-mode web dashboard, analytics, and AI chatbot.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green)
 ![Surprise](https://img.shields.io/badge/Surprise-SVD-purple)
-![Groq](https://img.shields.io/badge/Groq-Llama_3.3-orange)
+![Groq](https://img.shields.io/badge/Groq-Llama_3.1-orange)
 
 ## 🖥️ Walkthrough Demo
 Below is a demonstration showing how the recommendation system and user dashboard work:
@@ -23,9 +23,9 @@ Below is a demonstration showing how the recommendation system and user dashboar
 - **🤝 Collaborative Filtering** — SVD matrix factorization with GridSearchCV hyperparameter tuning
 - **📝 Content-Based Filtering** — TF-IDF vectorization with cosine similarity
 - **🔎 Semantic Search** — FAISS + Sentence Transformers for natural-language product lookup
-- **🧠 AI Hybrid Recommender** — LLM re-ranking with personalized explanations via Groq API
+- **🧠 AI Hybrid Recommender** — LLM re-ranking with personalized explanations (Groq Llama 3.1, NVIDIA Llama 3.3 fallback)
 - **🛒 "Also Bought" Recommendations** — Co-purchase pattern detection
-- **💬 AI Shopping Chatbot** — Conversational product discovery powered by Llama 3.3
+- **💬 AI Shopping Chatbot** — Conversational product discovery powered by the same Groq/NVIDIA LLM stack
 - **📊 Analytics Dashboard** — CTR tracking, algorithm comparison charts
 - **🧪 A/B Testing** — Statistical significance testing between algorithms
 - **🌙 Premium Dark UI** — Glassmorphism design with smooth animations
@@ -43,7 +43,7 @@ Create a `.env` file. At least one LLM key is required for hybrid recommendation
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GROQ_API_KEY` | Recommended | Groq API key (default model: `llama-3.1-8b-instant`) |
-| `NVIDIA_API_KEY` | Optional | NVIDIA NIM key; preferred when set (model: `meta/llama-3.3-70b-instruct`) |
+| `NVIDIA_API_KEY` | Optional | NVIDIA NIM key; used when Groq is unset or errors (model: `meta/llama-3.3-70b-instruct`) |
 
 ```
 GROQ_API_KEY=your_groq_api_key_here
@@ -144,7 +144,7 @@ ml-product-recommendations/
 - **CF Engine**: Surprise SVD with GridSearchCV tuning (RMSE < 1.0)
 - **CB Engine**: TF-IDF + Cosine Similarity on product text (weighted: category 3x, title 2x)
 - **Semantic Engine**: Sentence Transformers (`all-MiniLM-L6-v2`) + FAISS for query-to-product search
-- **LLM Engine**: Groq API (Llama 3.3 70B) for re-ranking + natural language explanations
+- **LLM Engine**: Groq (`llama-3.1-8b-instant`) first for speed, with NVIDIA NIM (`meta/llama-3.3-70b-instruct`) fallback for re-ranking + explanations
 - **A/B Testing**: Chi-squared significance testing across 4 algorithm groups
 
 ## 🧪 Optional: Fine-Tune an E-commerce LLM
