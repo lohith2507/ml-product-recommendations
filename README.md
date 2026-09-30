@@ -62,6 +62,8 @@ Builds a FAISS index over product text so `/api/search/semantic` works. Requires
 python setup_vector_db.py
 ```
 
+This writes `products_text.index` (gitignored, via `*.index`) and `products_vector_map.json` (the FAISS-row-to-`product_id` mapping) at the repo root. Re-run it after regenerating product data.
+
 ### 5. Start the Server
 ```bash
 uvicorn app:app --reload --port 8000
