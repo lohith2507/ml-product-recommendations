@@ -118,22 +118,22 @@ ml-product-recommendations/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/users` | List users |
+| `GET` | `/api/users` | List users (`?limit=`, max 200) |
 | `GET` | `/api/users/{id}` | User profile |
-| `GET` | `/api/products` | Browse products |
+| `GET` | `/api/products` | Browse products (`?category=&search=&page=&limit=`) |
 | `GET` | `/api/products/categories/list` | Product categories with counts |
 | `GET` | `/api/search/semantic` | Semantic product search (`?q=...`) |
 | `POST` | `/api/search/visual` | Visual product search (image upload) |
 | `GET` | `/api/products/{product_id}` | Single product detail |
 | `GET` | `/api/products/{product_id}/summary` | LLM review summary (pros/cons) |
-| `GET` | `/api/recommend/collaborative/{user_id}` | CF recommendations |
-| `GET` | `/api/recommend/content/{user_id}` | CB recommendations |
-| `GET` | `/api/recommend/hybrid/{user_id}` | LLM hybrid recommendations |
+| `GET` | `/api/recommend/collaborative/{user_id}` | CF recommendations (`?n=`, max 50) |
+| `GET` | `/api/recommend/content/{user_id}` | CB recommendations (`?n=`, max 50) |
+| `GET` | `/api/recommend/hybrid/{user_id}` | LLM hybrid recommendations (`?n=`, max 50) |
 | `POST` | `/api/recommend/cart` | Cart-aware recommendations |
 | `GET` | `/api/recommend/also-bought/{product_id}` | Co-purchase recommendations |
 | `POST` | `/api/chat` | AI chatbot |
 | `POST` | `/api/chat/audio` | Voice chatbot (Whisper transcription) |
-| `GET` | `/api/admin/generate-email` | Marketing email copy for a user |
+| `GET` | `/api/admin/generate-email` | Marketing email copy for a user (`?user_id=`) |
 | `GET` | `/api/admin/stats` | Revenue, clicks, impressions by algorithm |
 | `GET` | `/api/analytics/ctr` | CTR analytics |
 | `GET` | `/api/analytics/ctr-timeline` | CTR trends over time (`?days=...`) |
