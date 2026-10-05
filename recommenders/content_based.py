@@ -1,7 +1,8 @@
 """
 Content-Based Filtering Recommender using TF-IDF.
 
-Uses TF-IDF vectorization of product text (title + description + category)
+Uses TF-IDF vectorization of product text (category weighted 3x, title 2x,
+plus description and features)
 and cosine similarity to find similar products and recommend items
 based on a user's rating history.
 """
