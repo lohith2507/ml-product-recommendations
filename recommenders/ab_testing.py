@@ -27,7 +27,7 @@ class ABTestingEngine:
     def assign_user_group(self, user_id):
         """
         Assign a user to an algorithm group deterministically.
-        Uses hash-based assignment for consistent group membership.
+        Uses user_id modulo the number of groups, so a user always lands in the same group.
         """
         # Deterministic assignment based on user_id
         group_index = user_id % len(ALGORITHM_GROUPS)
