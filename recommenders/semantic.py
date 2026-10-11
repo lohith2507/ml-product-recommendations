@@ -1,3 +1,13 @@
+"""
+Semantic product search over a FAISS index.
+
+Encodes queries with the all-MiniLM-L6-v2 sentence-transformer and searches
+the products_text.index / products_vector_map.json files built by
+setup_vector_db.py. The index is an IndexFlatL2 over L2-normalized vectors,
+so the "similarity" value returned by search() is a squared L2 distance:
+lower means a closer match. Returns [] if the index files are missing.
+"""
+
 import os
 import json
 import faiss
