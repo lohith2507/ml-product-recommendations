@@ -1,9 +1,11 @@
 """
-LLM-Powered Hybrid Recommender using Groq API.
+LLM-Powered Hybrid Recommender using Groq API (with NVIDIA fallback).
 
 Combines candidates from Collaborative Filtering and Content-Based engines,
-then uses Groq's Llama 3.3 model to re-rank, personalize, and generate
-natural language explanations for recommendations.
+then uses an LLM to re-rank, personalize, and generate natural language
+explanations for recommendations. Groq (llama-3.1-8b-instant) is used when
+GROQ_API_KEY is set; otherwise it falls back to NVIDIA
+(meta/llama-3.3-70b-instruct) via NVIDIA_API_KEY.
 
 Also powers the AI chatbot for conversational product discovery.
 """
