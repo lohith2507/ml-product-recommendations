@@ -3,6 +3,11 @@ Collaborative Filtering Recommender using Surprise SVD.
 
 Uses Singular Value Decomposition (SVD) for matrix factorization
 to predict user-item ratings and generate top-N recommendations.
+
+Users not present in the training set (cold start) fall back to the most
+popular products: highest average rating among products with at least 3
+ratings. The trained model and trainset are pickled to cf_model.pkl and
+cf_trainset.pkl in the project root.
 """
 
 import os
