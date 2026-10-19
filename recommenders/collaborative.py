@@ -232,7 +232,10 @@ class CollaborativeFilteringRecommender:
     def get_similar_items(self, product_id, n=10):
         """
         Find products similar to a given product based on user co-ratings.
-        Uses the "also bought" pattern.
+        Uses the "also bought" pattern: start from users who rated the product
+        >= 4.0, then rank other products they rated >= 3.5 by the number of
+        distinct co-raters (at least 2), breaking ties by average rating.
+        Falls back to popular products when nobody rated the product highly.
         """
         with get_db() as conn:
             # Find users who rated this product highly (>= 4.0)
