@@ -157,7 +157,7 @@ class ABTestingEngine:
             )
             groups.append(row)
 
-        # Statistical significance: chi-squared test between best and second-best
+        # Statistical significance: one chi-squared test across all algorithm groups
         significance = self._compute_significance()
 
         return {
@@ -167,7 +167,13 @@ class ABTestingEngine:
         }
 
     def _compute_significance(self):
-        """Run chi-squared test between algorithm groups."""
+        """
+        Run a chi-squared test of independence across all algorithm groups.
+
+        Builds a contingency table with one row per group (clicks, non-clicks)
+        and tests whether CTR differs between groups overall; it does not
+        compare individual pairs. Results are flagged significant at p < 0.05.
+        """
         with get_db() as conn:
             groups = conn.execute("""
                 SELECT algorithm_group, SUM(clicks) as clicks,
