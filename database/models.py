@@ -120,7 +120,12 @@ def init_db():
 
 
 def dict_from_row(row):
-    """Convert a sqlite3.Row to a dictionary."""
+    """Convert a sqlite3.Row to a dictionary.
+
+    The JSON text columns ``preferences`` and ``features`` are decoded into
+    Python objects; if a value is not valid JSON it is left as the raw string.
+    Returns None when ``row`` is None.
+    """
     if row is None:
         return None
     d = dict(row)
