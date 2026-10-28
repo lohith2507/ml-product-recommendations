@@ -10,6 +10,14 @@ INDEX_PATH = os.path.join(os.path.dirname(__file__), "products_text.index")
 MAP_PATH = os.path.join(os.path.dirname(__file__), "products_vector_map.json")
 
 def setup_vector_db():
+    """Embed every product and write the FAISS index plus its id map.
+
+    Reads products from recommendation.db, joins title, category, description
+    and features into one text per product, encodes it with all-MiniLM-L6-v2,
+    L2-normalizes the vectors and stores them in products_text.index, with the
+    row-to-product_id mapping in products_vector_map.json. Run setup_data.py
+    first so the products table is populated.
+    """
     print("Loading embedding model (this may take a moment to download)...")
     # all-MiniLM-L6-v2 is fast and produces good embeddings (384 dimensions)
     model = SentenceTransformer('all-MiniLM-L6-v2')
