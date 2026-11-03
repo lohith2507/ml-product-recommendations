@@ -40,7 +40,7 @@ def test_agent_finds_deals_and_proposes_cart_change_without_applying_it(retrieve
         reply(tool_calls=[tool_call("c2", "propose_cart_change", {"product_id": 1, "action": "add", "quantity": 2, "reason": "50% off"})]),
         reply("I've prepared 2 pairs of Trail Running Shoes for you to confirm."),
     ])
-    agent = ShoppingAgent([(client, "test-model")], retriever=retriever)
+    agent = ShoppingAgent([(client, "test-model")], retriever=retriever, use_langgraph=False)
 
     result = agent.chat(1, "best running shoes under $55, add two")
 
@@ -62,7 +62,7 @@ def test_invalid_tool_arguments_are_reported_back_to_the_model(retriever):
         reply(tool_calls=[tool_call("c1", "propose_cart_change", {"product_id": 999, "action": "add"})]),
         reply("Sorry, I couldn't find that product."),
     ])
-    agent = ShoppingAgent([(client, "test-model")], retriever=retriever)
+    agent = ShoppingAgent([(client, "test-model")], retriever=retriever, use_langgraph=False)
 
     result = agent.chat(1, "add product 999")
 
@@ -72,10 +72,10 @@ def test_invalid_tool_arguments_are_reported_back_to_the_model(retriever):
 
 def test_falls_back_to_next_model_then_to_plain_deals(retriever):
     client = ScriptedClient([reply("Here you go.")])
-    agent = ShoppingAgent([(FailingClient(), "retired"), (client, "backup")], retriever=retriever)
+    agent = ShoppingAgent([(FailingClient(), "retired"), (client, "backup")], retriever=retriever, use_langgraph=False)
     assert agent.chat(1, "hello")["response"] == "Here you go."
 
-    offline = ShoppingAgent([(FailingClient(), "retired")], retriever=retriever)
+    offline = ShoppingAgent([(FailingClient(), "retired")], retriever=retriever, use_langgraph=False)
     result = offline.chat(1, "running shoes")
     assert result["tools_used"] == ["find_best_deals"]
     assert result["products"][0]["product_id"] == 1
@@ -84,7 +84,7 @@ def test_falls_back_to_next_model_then_to_plain_deals(retriever):
 def test_last_round_forces_a_text_answer(retriever):
     loop = [reply(tool_calls=[tool_call(f"c{i}", "get_cart", {})]) for i in range(5)]
     client = ScriptedClient(loop + [reply("Your cart is empty.")])
-    agent = ShoppingAgent([(client, "test-model")], retriever=retriever)
+    agent = ShoppingAgent([(client, "test-model")], retriever=retriever, use_langgraph=False)
 
     result = agent.chat(1, "what's in my cart?")
 
