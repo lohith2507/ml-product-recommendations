@@ -25,6 +25,19 @@ class CartRequest(BaseModel):
     product_ids: List[int]
 
 
+class CartItemRequest(BaseModel):
+    product_id: int
+    quantity: int = Field(1, ge=1, le=99)
+
+
+class CartQuantityRequest(BaseModel):
+    quantity: int = Field(..., ge=0, le=99)
+
+
+class CartActionRequest(BaseModel):
+    user_id: int
+
+
 # --- Response Schemas ---
 
 class ProductResponse(BaseModel):
@@ -77,6 +90,8 @@ class ChatResponse(BaseModel):
     products: List[dict] = []
     transcription: Optional[str] = None
     active_context: List[str] = []
+    pending_actions: List[dict] = []
+    tools_used: List[str] = []
 
 
 class ABTestGroupResult(BaseModel):

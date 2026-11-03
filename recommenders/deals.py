@@ -1,0 +1,149 @@
+"""
+Product retrieval and best-deal ranking used by the shopping agent.
+
+Retrieval is semantic (FAISS) with a keyword fallback. Prices and discounts
+always come from the products table, never from the vector index.
+"""
+
+import math
+
+from database.models import get_db, dict_from_row
+
+RELEVANCE_WEIGHT = 0.45
+SAVINGS_WEIGHT = 0.35
+RATING_WEIGHT = 0.20
+# A 50%+ discount earns the full savings component.
+SAVINGS_CAP = 0.5
+# Ratings backed by this many reviews get full confidence.
+RATING_COUNT_FOR_FULL_CONFIDENCE = 500
+
+
+def deal_metrics(product):
+    price = product.get("price") or 0.0
+    list_price = product.get("list_price") or 0.0
+    savings = list_price - price if list_price > price > 0 else 0.0
+    return {
+        "savings": round(savings, 2),
+        "savings_pct": round(savings / list_price, 4) if savings else 0.0,
+    }
+
+
+def deal_score(product, relevance):
+    savings_pct = deal_metrics(product)["savings_pct"]
+    rating = (product.get("avg_rating") or 0.0) / 5.0
+    confidence = min(
+        1.0,
+        math.log1p(product.get("rating_count") or 0) / math.log1p(RATING_COUNT_FOR_FULL_CONFIDENCE),
+    )
+    return round(
+        RELEVANCE_WEIGHT * relevance
+        + SAVINGS_WEIGHT * min(savings_pct / SAVINGS_CAP, 1.0)
+        + RATING_WEIGHT * rating * confidence,
+        4,
+    )
+
+
+def _semantic_retriever(query, top_k):
+    from recommenders.semantic import semantic_engine
+
+    return semantic_engine.search(query, top_k=top_k)
+
+
+def _keyword_candidates(conn, query, top_k):
+    terms = [t for t in query.lower().split() if len(t) > 2][:6]
+    if not terms:
+        return []
+    clause = " OR ".join(["LOWER(title) LIKE ?"] * len(terms))
+    rows = conn.execute(
+        f"SELECT product_id FROM products WHERE {clause} ORDER BY rating_count DESC LIMIT ?",
+        [f"%{t}%" for t in terms] + [top_k],
+    ).fetchall()
+    return [{"product_id": r["product_id"], "similarity": 0.5} for r in rows]
+
+
+def _candidates(query, category, max_price, min_rating, top_k, retriever):
+    """Return product dicts matching the filters, each with relevance and deal fields."""
+    hits = []
+    if query:
+        try:
+            hits = (retriever or _semantic_retriever)(query, top_k)
+        except Exception as e:
+            print(f"⚠️ Semantic retrieval failed, using keyword search: {e}")
+
+    with get_db() as conn:
+        if query and not hits:
+            hits = _keyword_candidates(conn, query, top_k)
+
+        if hits:
+            relevance = {h["product_id"]: max(0.0, min(1.0, float(h["similarity"]))) for h in hits}
+            placeholders = ",".join("?" * len(relevance))
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE product_id IN ({placeholders})",
+                list(relevance),
+            ).fetchall()
+        else:
+            relevance = {}
+            rows = conn.execute(
+                "SELECT * FROM products ORDER BY (list_price - price) / NULLIF(list_price, 0) DESC LIMIT ?",
+                (top_k,),
+            ).fetchall()
+
+    products = []
+    for row in rows:
+        p = dict_from_row(row)
+        if category and (p.get("category") or "").lower() != category.lower():
+            continue
+        if max_price is not None and (p.get("price") or 0) > max_price:
+            continue
+        if min_rating is not None and (p.get("avg_rating") or 0) < min_rating:
+            continue
+        p["relevance"] = round(relevance.get(p["product_id"], 0.0), 4)
+        p.update(deal_metrics(p))
+        p["deal_score"] = deal_score(p, p["relevance"])
+        products.append(p)
+    return products
+
+
+def search_products(query, category=None, max_price=None, min_rating=None, limit=5, retriever=None):
+    filtered = category or max_price is not None or min_rating is not None
+    products = _candidates(query, category, max_price, min_rating, 100 if filtered else 40, retriever)
+    products.sort(key=lambda p: p["relevance"], reverse=True)
+    return products[:limit]
+
+
+def find_best_deals(query, category=None, max_price=None, min_rating=None, limit=5, retriever=None):
+    products = _candidates(query, category, max_price, min_rating, 100, retriever)
+    products.sort(key=lambda p: p["deal_score"], reverse=True)
+    return products[:limit]
+
+
+def get_products(product_ids):
+    ids = [int(i) for i in product_ids][:10]
+    if not ids:
+        return []
+    with get_db() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM products WHERE product_id IN ({','.join('?' * len(ids))})", ids
+        ).fetchall()
+    by_id = {}
+    for row in rows:
+        p = dict_from_row(row)
+        p.update(deal_metrics(p))
+        by_id[p["product_id"]] = p
+    return [by_id[i] for i in ids if i in by_id]
+
+
+def compact(product):
+    """Small, LLM-friendly view of a product."""
+    title = product.get("title") or ""
+    return {
+        "product_id": product["product_id"],
+        "title": title[:90],
+        "category": product.get("category"),
+        "price": product.get("price"),
+        "list_price": product.get("list_price") or None,
+        "savings": product.get("savings", 0.0),
+        "savings_pct": round(product.get("savings_pct", 0.0) * 100, 1),
+        "avg_rating": product.get("avg_rating"),
+        "rating_count": product.get("rating_count"),
+    }

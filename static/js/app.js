@@ -140,6 +140,7 @@ function onUserChange() {
     if (!userId) { state.currentUser = null; return; }
     state.currentUser = userId;
     loadRecommendations();
+    loadCart();
 }
 
 // ========== Recommendation Tabs ==========
@@ -434,7 +435,27 @@ async function trackClick(productId, algorithm) {
 }
 
 // ========== Shopping Cart Logic ==========
-let cart = [];
+let cart = { items: [], item_count: 0, subtotal: 0, savings: 0 };
+
+function cartUserId() {
+    return state.currentUser || 1;
+}
+
+function applyCartUpdate(updatedCart) {
+    cart = updatedCart;
+    document.getElementById('cartCountBadge').innerText = cart.item_count;
+    if (document.getElementById('cartSidebar').style.right === '0px') {
+        renderCart();
+    }
+}
+
+async function loadCart() {
+    try {
+        applyCartUpdate(await api(`/cart/${cartUserId()}`));
+    } catch (e) {
+        showToast('Could not load your cart.', 'error');
+    }
+}
 
 function toggleCart() {
     const sidebar = document.getElementById('cartSidebar');
@@ -446,44 +467,38 @@ function toggleCart() {
     }
 }
 
-function addToCart(productId, title, price, imageUrl) {
-    const existingItem = cart.find(i => i.product_id === productId);
-    if (existingItem) {
-        existingItem.quantity += 1;
-    } else {
-        cart.push({ product_id: productId, title, price, imageUrl, quantity: 1 });
+async function addToCart(productId, title) {
+    try {
+        applyCartUpdate(await api(`/cart/${cartUserId()}/items`, {
+            method: 'POST',
+            body: JSON.stringify({ product_id: productId, quantity: 1 }),
+        }));
+    } catch (e) {
+        showToast('Could not add that item to your cart.', 'error');
+        return;
     }
-    
-    // Update badge
-    const badge = document.getElementById('cartCountBadge');
-    badge.innerText = cart.reduce((sum, item) => sum + item.quantity, 0);
-    
+
     showToast(`Added ${title} to cart!`);
-    
+
     // Open sidebar automatically
-    const sidebar = document.getElementById('cartSidebar');
-    if (sidebar.style.right !== '0px') {
+    if (document.getElementById('cartSidebar').style.right !== '0px') {
         toggleCart();
-    } else {
-        renderCart();
     }
 }
 
-function removeFromCart(productId) {
-    cart = cart.filter(i => i.product_id !== productId);
-    
-    // Update badge
-    const badge = document.getElementById('cartCountBadge');
-    badge.innerText = cart.reduce((sum, item) => sum + item.quantity, 0);
-    
-    renderCart();
+async function removeFromCart(productId) {
+    try {
+        applyCartUpdate(await api(`/cart/${cartUserId()}/items/${productId}`, { method: 'DELETE' }));
+    } catch (e) {
+        showToast('Could not remove that item.', 'error');
+    }
 }
 
 async function renderCart() {
     const cartItemsDiv = document.getElementById('cartItems');
     const subtotalEl = document.getElementById('cartSubtotal');
     
-    if (cart.length === 0) {
+    if (cart.items.length === 0) {
         cartItemsDiv.innerHTML = '<div class="empty-state"><p>Your cart is empty.</p></div>';
         subtotalEl.innerText = '$0.00';
         document.getElementById('cartRecsContainer').innerHTML = '<p style="font-size:0.75rem; color:var(--text-light);">Add items to cart to see recommendations.</p>';
@@ -491,15 +506,11 @@ async function renderCart() {
     }
     
     let html = '';
-    let subtotal = 0;
     
-    cart.forEach(item => {
-        const itemTotal = item.price * item.quantity;
-        subtotal += itemTotal;
-        
+    cart.items.forEach(item => {
         html += `
             <div style="display:flex; gap:12px; background:white; padding:12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                <img src="${item.imageUrl || 'https://via.placeholder.com/50'}" style="width:50px; height:50px; object-fit:contain;" />
+                <img src="${item.image_url || 'https://via.placeholder.com/50'}" style="width:50px; height:50px; object-fit:contain;" />
                 <div style="flex:1;">
                     <div style="font-weight:500; font-size:0.9rem; line-height:1.2; margin-bottom:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${escapeHtml(item.title)}</div>
                     <div style="font-size:0.85rem; color:var(--text-medium);">Qty: ${item.quantity} | <span style="color:var(--amazon-red); font-weight:bold;">$${item.price.toFixed(2)}</span></div>
@@ -509,8 +520,12 @@ async function renderCart() {
         `;
     });
     
+    if (cart.savings > 0) {
+        html += `<div style="font-size:0.85rem; color:var(--amazon-green); font-weight:600; text-align:right;">You're saving $${cart.savings.toFixed(2)} vs. list price</div>`;
+    }
+
     cartItemsDiv.innerHTML = html;
-    subtotalEl.innerText = `$${subtotal.toFixed(2)}`;
+    subtotalEl.innerText = `$${cart.subtotal.toFixed(2)}`;
     
     // Fetch Frequently Bought Together
     fetchCartRecommendations();
@@ -521,7 +536,7 @@ async function fetchCartRecommendations() {
     recsContainer.innerHTML = '<p style="font-size:0.75rem; color:var(--text-light);">Loading recommendations...</p>';
     
     try {
-        const productIds = cart.map(i => i.product_id);
+        const productIds = cart.items.map(i => i.product_id);
         const res = await fetch(`${API_BASE_URL}/recommend/cart?n=4`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

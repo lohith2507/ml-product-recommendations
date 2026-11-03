@@ -12,8 +12,12 @@ from database.models import get_db, dict_from_row
 from api.schemas import (
     ChatRequest, ClickRequest, ChatResponse,
     ABTestResponse, AnalyticsResponse, CartRequest,
+    CartItemRequest, CartQuantityRequest, CartActionRequest,
 )
 from recommenders.semantic import semantic_engine
+from recommenders import cart as cart_service
+from recommenders import deals
+from recommenders.shopping_agent import ShoppingAgent
 import json
 
 router = APIRouter(prefix="/api", tags=["API"])
@@ -23,15 +27,17 @@ cf_recommender = None
 cb_recommender = None
 llm_recommender = None
 ab_engine = None
+shopping_agent = ShoppingAgent(clients=[])
 
 
 def set_recommenders(cf, cb, llm, ab):
     """Set global recommender instances. Called from app.py on startup."""
-    global cf_recommender, cb_recommender, llm_recommender, ab_engine
+    global cf_recommender, cb_recommender, llm_recommender, ab_engine, shopping_agent
     cf_recommender = cf
     cb_recommender = cb
     llm_recommender = llm
     ab_engine = ab
+    shopping_agent = ShoppingAgent.from_llm(llm)
 
 
 # ========== User Endpoints ==========
@@ -399,16 +405,10 @@ async def recommend_also_bought(product_id: int, n: int = Query(10, le=50)):
 # ========== Chat Endpoint ==========
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """AI chatbot endpoint for conversational product discovery."""
-    if llm_recommender is None:
-        return ChatResponse(
-            response="The AI assistant is currently unavailable. Please try the recommendation tabs!",
-            products=[]
-        )
-
+def chat(request: ChatRequest):
+    """Shopping agent: searches, finds deals, and proposes cart changes for the member to confirm."""
     try:
-        result = llm_recommender.chat(
+        result = shopping_agent.chat(
             user_id=request.user_id,
             message=request.message,
             conversation_history=request.conversation_history
@@ -448,7 +448,7 @@ async def chat_audio(user_id: int = Form(...), conversation_history: str = Form(
 
         history = json.loads(conversation_history)
         
-        result = llm_recommender.chat(
+        result = shopping_agent.chat(
             user_id=user_id,
             message=user_message,
             conversation_history=history
@@ -463,6 +463,57 @@ async def chat_audio(user_id: int = Form(...), conversation_history: str = Form(
             response=f"Sorry, I couldn't process your voice message. ({str(e)[:100]})",
             products=[]
         )
+
+
+# ========== Cart Endpoints ==========
+
+def _cart_call(fn, *args):
+    try:
+        return fn(*args)
+    except cart_service.CartError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/cart/{user_id}")
+def get_cart(user_id: int):
+    return _cart_call(cart_service.get_cart, user_id)
+
+
+@router.post("/cart/{user_id}/items")
+def add_cart_item(user_id: int, request: CartItemRequest):
+    return _cart_call(cart_service.update_cart, user_id, request.product_id, "add", request.quantity)
+
+
+@router.put("/cart/{user_id}/items/{product_id}")
+def set_cart_item_quantity(user_id: int, product_id: int, request: CartQuantityRequest):
+    return _cart_call(cart_service.update_cart, user_id, product_id, "set", request.quantity)
+
+
+@router.delete("/cart/{user_id}/items/{product_id}")
+def remove_cart_item(user_id: int, product_id: int):
+    return _cart_call(cart_service.update_cart, user_id, product_id, "remove", 1)
+
+
+@router.post("/cart/actions/{action_id}/confirm")
+def confirm_cart_action(action_id: str, request: CartActionRequest):
+    """Apply a cart change proposed by the shopping agent. Safe to retry."""
+    return _cart_call(cart_service.confirm_action, action_id, request.user_id)
+
+
+@router.post("/cart/actions/{action_id}/reject")
+def reject_cart_action(action_id: str, request: CartActionRequest):
+    return _cart_call(cart_service.reject_action, action_id, request.user_id)
+
+
+@router.get("/deals")
+def best_deals(
+    q: str = "",
+    category: Optional[str] = None,
+    max_price: Optional[float] = None,
+    limit: int = Query(10, ge=1, le=50),
+):
+    products = deals.find_best_deals(q, category=category, max_price=max_price, limit=limit)
+    return {"products": products, "count": len(products)}
 
 
 @router.get("/admin/generate-email")

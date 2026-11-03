@@ -227,19 +227,19 @@
     </footer>
 
     <!-- Chatbot -->
-    <button class="chatbot-toggle" id="chatToggle" onclick="toggleChat()" title="AI Shopping Assistant">💬</button>
+    <button class="chatbot-toggle" id="chatToggle" onclick="toggleChat()" title="AI Shopping Agent">💬</button>
 
     <div class="chatbot-panel" id="chatPanel">
         <div class="chat-header">
             <div class="chat-avatar">🤖</div>
             <div class="chat-info">
-                <h4>AI Shopping Assistant</h4>
-                <p>● Online — Powered by Llama 3.3</p>
+                <h4>AI Shopping Agent</h4>
+                <p>● Online — finds deals and builds your cart</p>
             </div>
         </div>
         <div class="chat-messages" id="chatMessages">
             <div class="chat-message assistant">
-                Hi! I'm your AI shopping assistant. Tell me what you're looking for and I'll find the perfect products for you!
+                Hi! I'm your shopping agent. Tell me what you need and your budget. I'll find the best deals and can add items to your cart once you confirm.
             </div>
         </div>
         <div id="chatActiveContext" style="display:none; padding:8px 12px; background:#fff; border-top:1px solid #e0e0e0; font-size:0.75rem; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center;">
@@ -248,7 +248,7 @@
         </div>
         <div class="chat-input-wrapper">
             <input type="text" class="chat-input" id="chatInput"
-                   placeholder="What are you looking for?"
+                   placeholder="e.g. Best deal on backpacks under $40"
                    onkeydown="if(event.key==='Enter') sendChat()">
             <button class="chat-voice-btn" onclick="toggleVoiceRecording()" id="chatVoiceBtn" title="Hold to record voice">🎤</button>
             <button class="chat-send-btn" onclick="sendChat()" id="chatSendBtn">➤</button>
@@ -298,9 +298,9 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=2"></script>
     <script src="/static/js/recommendations.js"></script>
-    <script src="/static/js/chatbot.js"></script>
+    <script src="/static/js/chatbot.js?v=2"></script>
     <script src="/static/js/analytics.js"></script>
 
 </body>

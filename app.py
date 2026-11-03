@@ -127,7 +127,7 @@ app.include_router(router)
 @app.get("/")
 async def dashboard(request: Request):
     """Serve the main dashboard page."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 if __name__ == "__main__":

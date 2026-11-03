@@ -1,0 +1,36 @@
+# Start from .gitignore patterns, then force-include runtime artifacts needed in the image.
+.git
+.venv
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.env
+.pytest_cache/
+tests/
+finetune_colab.ipynb
+finetune_dataset.jsonl
+demo.webp
+payload.json
+payload2.json
+models.json
+generate_finetuning_data.py
+dataset/
+data/
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
+graphify-out/
+*.md
+!README.md
+
+# Override .gitignore: these are required in the Cloud Run image
+!recommendation.db
+!cf_model.pkl
+!cb_model.pkl
+!cf_trainset.pkl
+!products_vertex.index
+!products_vertex_map.json
+!products_vertex_meta.json

@@ -48,7 +48,7 @@ class LLMHybridRecommender:
             print("⚠️  No API keys found. LLM features will be disabled.")
             
         self.nvidia_model = "meta/llama-3.3-70b-instruct"
-        self.groq_model = "llama-3.1-8b-instant"
+        self.groq_model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
         self.max_retries = 2
 
     @property

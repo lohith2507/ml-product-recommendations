@@ -105,6 +105,31 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             );
 
+            CREATE TABLE IF NOT EXISTS cart_items (
+                user_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                quantity INTEGER NOT NULL CHECK(quantity > 0),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, product_id),
+                FOREIGN KEY (user_id) REFERENCES users(user_id),
+                FOREIGN KEY (product_id) REFERENCES products(product_id)
+            );
+
+            -- Cart changes proposed by the shopping agent; applied only after the member confirms
+            CREATE TABLE IF NOT EXISTS agent_cart_actions (
+                action_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('add', 'set', 'remove')),
+                quantity INTEGER NOT NULL DEFAULT 1,
+                reason TEXT,
+                status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed', 'applied', 'rejected')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id),
+                FOREIGN KEY (product_id) REFERENCES products(product_id)
+            );
+
             -- Indexes for fast lookups
             CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
             CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
@@ -115,6 +140,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_products_bestseller ON products(is_best_seller);
             CREATE INDEX IF NOT EXISTS idx_ab_experiments_user ON ab_experiments(user_id);
             CREATE INDEX IF NOT EXISTS idx_ab_experiments_algo ON ab_experiments(algorithm_group);
+            CREATE INDEX IF NOT EXISTS idx_agent_cart_actions_user ON agent_cart_actions(user_id, status);
         """)
     print("[OK] Database schema initialized successfully.")
 
