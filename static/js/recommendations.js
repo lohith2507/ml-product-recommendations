@@ -1,5 +1,5 @@
 /**
- * Product Card Rendering — Amazon Style
+ * Product Card Rendering: Amazon Style
  * Renders product cards with real images, Amazon-style pricing,
  * best seller badges, star ratings, and algorithm badges.
  */
@@ -170,7 +170,7 @@ function getAlgoLabel(algo) {
         'hybrid_cf': 'Hybrid (CF)',
         'hybrid_cb': 'Hybrid (CB)',
         'also_bought': 'Also Bought',
-        'chatbot': 'AI Pick',
+        'chatbot': 'Chat Agent',
     };
     return labels[algo] || algo;
 }

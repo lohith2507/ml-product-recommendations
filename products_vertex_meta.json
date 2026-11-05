@@ -1,0 +1,7 @@
+{
+  "model": "text-embedding-005",
+  "dim": 768,
+  "count": 5000,
+  "project": "shopping-agent-513607",
+  "location": "us-central1"
+}

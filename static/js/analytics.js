@@ -1,5 +1,5 @@
 /**
- * Analytics Dashboard — Amazon-Style Charts
+ * Analytics Dashboard: Amazon-Style Charts
  * Chart.js powered CTR analytics, A/B test results, and timeline charts.
  */
 
@@ -169,7 +169,7 @@ async function loadABTestResults() {
 
         html += '</tbody></table></div>';
 
-        html += `<div class="chart-container" style="margin-top:16px;"><h3>A/B Test — Click Distribution</h3><div class="chart-wrapper"><canvas id="abTestChart"></canvas></div></div>`;
+        html += `<div class="chart-container" style="margin-top:16px;"><h3>A/B Test: Click Distribution</h3><div class="chart-wrapper"><canvas id="abTestChart"></canvas></div></div>`;
 
         container.innerHTML = html;
         renderABTestChart(data.groups || []);

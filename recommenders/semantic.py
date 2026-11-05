@@ -1,13 +1,15 @@
 """
 Semantic product search.
 
-Prefers a Vertex AI embedding index (products_vertex.index) when present so
-Cloud Run does not need torch / sentence-transformers. Falls back to the
-local MiniLM FAISS index (products_text.index / products_vector_map.json)
-built by setup_vector_db.py. That local index is an IndexFlatL2 over
-L2-normalized vectors, so the "similarity" value from search() is a squared
-L2 distance: lower means a closer match. Returns [] if the index files are
-missing.
+Order of preference:
+  1. Vertex AI Vector Search (when VECTOR_SEARCH_INDEX_ENDPOINT is set)
+  2. Vertex embedding FAISS index (products_vertex.index) for Cloud Run
+  3. Local MiniLM FAISS index (products_text.index / products_vector_map.json)
+     built by setup_vector_db.py
+
+The local index is an IndexFlatL2 over L2-normalized vectors, so the
+"similarity" value from search() is a squared L2 distance: lower means a
+closer match. Returns [] if the index files are missing.
 """
 
 from __future__ import annotations
@@ -25,15 +27,30 @@ VERTEX_INDEX_PATH = os.path.join(DB_DIR, "products_vertex.index")
 VERTEX_MAP_PATH = os.path.join(DB_DIR, "products_vertex_map.json")
 
 
+def _vector_search_configured() -> bool:
+    return bool(
+        os.environ.get("VECTOR_SEARCH_INDEX_ENDPOINT")
+        and os.environ.get("VECTOR_SEARCH_DEPLOYED_INDEX_ID")
+    )
+
+
 class SemanticSearch:
     def __init__(self):
-        self.backend = None  # "vertex" | "local"
+        self.backend = None  # "vector_search" | "vertex" | "local"
         self.model = None
         self.index = None
         self.mapping = None
+        self._vs_endpoint = None
+        self._vs_disabled = False  # set after a failed Vector Search call
 
     def _load_resources(self):
+        if self.backend == "vector_search":
+            return
         if self.index is not None and self.mapping is not None:
+            return
+
+        if _vector_search_configured() and not self._vs_disabled:
+            self.backend = "vector_search"
             return
 
         if os.path.exists(VERTEX_INDEX_PATH) and os.path.exists(VERTEX_MAP_PATH):
@@ -53,7 +70,7 @@ class SemanticSearch:
             self.backend = "local"
 
     def _encode(self, query: str) -> np.ndarray:
-        if self.backend == "vertex":
+        if self.backend in ("vertex", "vector_search"):
             from recommenders.vertex_client import embed_texts
 
             vectors = embed_texts([query], task_type="RETRIEVAL_QUERY")
@@ -63,8 +80,55 @@ class SemanticSearch:
         faiss.normalize_L2(query_vector)
         return query_vector
 
+    def _search_vector_search(self, query: str, top_k: int):
+        from google.cloud import aiplatform_v1
+
+        query_vector = self._encode(query)[0].tolist()
+        endpoint_name = os.environ["VECTOR_SEARCH_INDEX_ENDPOINT"]
+        deployed_id = os.environ["VECTOR_SEARCH_DEPLOYED_INDEX_ID"]
+        # Public endpoint host is derived from the resource; Matching Engine
+        # find_neighbors uses the regional API with the endpoint name.
+        api_endpoint = os.environ.get(
+            "VECTOR_SEARCH_API_ENDPOINT",
+            f"{os.environ.get('VERTEX_EMBED_LOCATION', 'us-central1')}-aiplatform.googleapis.com",
+        )
+        client = aiplatform_v1.MatchServiceClient(
+            client_options={"api_endpoint": api_endpoint}
+        )
+        datapoint = aiplatform_v1.IndexDatapoint(feature_vector=query_vector)
+        query_obj = aiplatform_v1.FindNeighborsRequest.Query(
+            datapoint=datapoint,
+            neighbor_count=top_k,
+        )
+        request = aiplatform_v1.FindNeighborsRequest(
+            index_endpoint=endpoint_name,
+            deployed_index_id=deployed_id,
+            queries=[query_obj],
+            return_full_datapoint=False,
+        )
+        response = client.find_neighbors(request)
+        results = []
+        for neighbor in response.nearest_neighbors[0].neighbors:
+            try:
+                pid = int(neighbor.datapoint.datapoint_id)
+            except (TypeError, ValueError):
+                continue
+            # Distance is DOT_PRODUCT; higher is better / closer after L2-norm.
+            results.append({"product_id": pid, "similarity": float(neighbor.distance)})
+        return results
+
     def search(self, query: str, top_k: int = 10):
         self._load_resources()
+        if self.backend == "vector_search":
+            try:
+                return self._search_vector_search(query, top_k)
+            except Exception as e:
+                print(f"⚠️ Vector Search failed, falling back to FAISS: {e}")
+                self._vs_disabled = True
+                self.backend = None
+                self.index = None
+                self._load_resources()
+
         if not self.index or not self.mapping:
             return []
 

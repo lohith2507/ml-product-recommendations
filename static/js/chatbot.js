@@ -4,18 +4,121 @@
  */
 
 let chatHistory = [];
+const chatsByUser = {};
+let chatLoadToken = 0;
 let isChatSending = false;
 
+function selectedMemberLabel() {
+    const select = document.getElementById('userSelect');
+    const text = select?.selectedOptions?.[0]?.textContent || '';
+    return text.replace(/\s*\(User\s+\d+\)\s*$/, '').trim();
+}
+
+function snapshotChatForUser(userId) {
+    if (!userId) return;
+    chatsByUser[userId] = chatHistory.slice();
+}
+
+function renderChatTranscript(memberLabel) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    container.innerHTML = '';
+    const who = memberLabel || 'this member';
+    const header = document.querySelector('#chatPanel .chat-info p');
+    if (header) header.textContent = `● ${who} · their cart, prefs, and past chats`;
+    if (!chatHistory.length) {
+        addChatMessage(
+            `Hi ${who}. This chat is only yours: your cart, wishlist, and saved chats. Ask for deals or say "like last time".`,
+            'assistant'
+        );
+        return;
+    }
+    chatHistory.forEach(msg => {
+        addChatMessage(msg.content, msg.role === 'user' ? 'user' : 'assistant');
+    });
+}
+
+async function loadChatForUser(userId) {
+    const token = ++chatLoadToken;
+    const label = selectedMemberLabel() || `Member ${userId}`;
+    if (chatsByUser[userId]) {
+        chatHistory = chatsByUser[userId].slice();
+        renderChatTranscript(label);
+        return;
+    }
+    chatHistory = [];
+    const container = document.getElementById('chatMessages');
+    if (container) {
+        container.innerHTML = `<div class="chat-message assistant">Loading ${escapeHtml(label)}'s chat...</div>`;
+    }
+    try {
+        const data = await api(`/chat/thread/${userId}`);
+        if (token !== chatLoadToken || state.currentUser !== userId) return;
+        chatHistory = (data.messages || []).filter(m => m && m.content && (m.role === 'user' || m.role === 'assistant'));
+    } catch (e) {
+        if (token !== chatLoadToken || state.currentUser !== userId) return;
+        chatHistory = [];
+    }
+    chatsByUser[userId] = chatHistory.slice();
+    renderChatTranscript(label);
+}
+
+function rememberChatTurn(userId, userText, assistantText) {
+    const bucket = (state.currentUser === userId ? chatHistory : (chatsByUser[userId] || [])).slice();
+    if (userText) bucket.push({ role: 'user', content: userText });
+    if (assistantText) bucket.push({ role: 'assistant', content: assistantText });
+    chatsByUser[userId] = bucket;
+    if (state.currentUser === userId) chatHistory = bucket;
+}
+
 /**
- * Toggle the chatbot panel open/closed.
+ * Toggle the chatbot panel open/closed without wiping toggle markup.
  */
 function toggleChat() {
     const panel = document.getElementById('chatPanel');
     const toggle = document.getElementById('chatToggle');
-
-    panel.classList.toggle('open');
-    toggle.textContent = panel.classList.contains('open') ? '✕' : '💬';
+    const open = !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    toggle.classList.toggle('is-open', open);
+    const label = toggle.querySelector('.chatbot-toggle-label');
+    const icon = toggle.querySelector('.chatbot-toggle-icon');
+    if (icon) icon.textContent = open ? '✕' : '💬';
+    if (label) label.textContent = open ? 'Close' : 'Chat Agent';
+    if (open) {
+        const cart = document.getElementById('cartSidebar');
+        if (cart) cart.classList.remove('open');
+        document.getElementById('chatInput')?.focus();
+    }
+    if (typeof syncOverlay === 'function') syncOverlay();
 }
+
+function openChatAgent() {
+    const panel = document.getElementById('chatPanel');
+    if (!panel.classList.contains('open')) toggleChat();
+    closeLabsMenu();
+}
+
+function closeChatAgent() {
+    const panel = document.getElementById('chatPanel');
+    if (panel.classList.contains('open')) toggleChat();
+}
+
+function sendSuggestion(text) {
+    const input = document.getElementById('chatInput');
+    input.value = text;
+    sendChat();
+}
+
+function toggleLabsMenu(event) {
+    event.stopPropagation();
+    document.getElementById('labsMenu')?.classList.toggle('open');
+}
+
+function closeLabsMenu() {
+    document.getElementById('labsMenu')?.classList.remove('open');
+}
+
+document.addEventListener('click', () => closeLabsMenu());
 
 /**
  * Send a message to the AI chatbot.
@@ -58,33 +161,34 @@ async function sendChat() {
         });
 
         if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
+            let data = {};
+            try { data = await response.json(); } catch (_) { data = {}; }
+            removeTypingIndicator(typingId);
+            addChatMessage(data.response || 'I could not finish that. Try a shorter request.', 'assistant', data.products || []);
+            if (typeof applyUiActions === 'function') applyUiActions(data.ui_actions);
+            return;
         }
 
         const data = await response.json();
-
-        // Remove typing indicator
         removeTypingIndicator(typingId);
+        rememberChatTurn(userId, message, data.response);
+        if (state.currentUser !== userId) return;
 
-        // Add assistant response
-        addChatMessage(data.response, 'assistant', data.products, data.pending_actions);
+        addChatMessage(data.response, 'assistant', data.products, data.pending_actions, {
+            message,
+            tools_used: data.tools_used,
+            thread_id: data.thread_id,
+        });
+        if (typeof applyUiActions === 'function') applyUiActions(data.ui_actions);
 
-        // Update conversation history
-        chatHistory.push({ role: 'user', content: message });
-        chatHistory.push({ role: 'assistant', content: data.response });
-
-        // Update context tags
-        if (data.active_context && data.active_context.length > 0) {
+        if (state.currentUser === userId && data.active_context && data.active_context.length > 0) {
             updateActiveContext(data.active_context);
         }
 
     } catch (error) {
         console.error('Chat error:', error);
         removeTypingIndicator(typingId);
-        addChatMessage(
-            'Sorry, I\'m having trouble connecting. Please try again!',
-            'assistant'
-        );
+        addChatMessage('I could not finish that. Try a shorter request, like a search or a page to open.', 'assistant');
     } finally {
         isChatSending = false;
         document.getElementById('chatSendBtn').disabled = false;
@@ -95,32 +199,40 @@ async function sendChat() {
 function updateActiveContext(tags) {
     const contextContainer = document.getElementById('chatActiveContext');
     const tagsContainer = document.getElementById('chatContextTags');
-    
-    if (tags.length === 0) {
-        contextContainer.style.display = 'none';
+    if (!contextContainer || !tagsContainer) return;
+
+    if (!tags || tags.length === 0) {
+        contextContainer.classList.remove('visible');
+        tagsContainer.innerHTML = '';
         return;
     }
-    
-    contextContainer.style.display = 'flex';
-    tagsContainer.innerHTML = tags.map(tag => 
-        `<span style="background:var(--amazon-blue); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${escapeHtml(tag)}</span>`
+
+    contextContainer.classList.add('visible');
+    tagsContainer.innerHTML = tags.map(tag =>
+        `<span class="chat-context-tag">${escapeHtml(tag)}</span>`
     ).join('');
 }
 
-function clearChatMemory() {
+async function clearChatMemory() {
+    const userId = state.currentUser;
     chatHistory = [];
-    document.getElementById('chatMessages').innerHTML = `
-        <div class="chat-message assistant">
-            Hi! I've cleared my memory. How can I help you today?
-        </div>
-    `;
+    if (userId) {
+        chatsByUser[userId] = [];
+        try {
+            await api(`/chat/memory/${userId}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error('Clear memory failed', e);
+        }
+    }
+    renderChatTranscript(selectedMemberLabel());
     updateActiveContext([]);
+    if (typeof showToast === 'function') showToast('Chat memory cleared');
 }
 
 /**
  * Add a message bubble to the chat panel.
  */
-function addChatMessage(text, role, products = [], pendingActions = []) {
+function addChatMessage(text, role, products = [], pendingActions = [], feedbackMeta = null) {
     const container = document.getElementById('chatMessages');
 
     const messageEl = document.createElement('div');
@@ -151,6 +263,7 @@ function addChatMessage(text, role, products = [], pendingActions = []) {
                     ${savings > 0 ? `<div style="font-size:0.7rem; color:var(--amazon-green); font-weight:600; margin-top:3px;">Save $${savings.toFixed(2)} (${savingsPct}% off)</div>` : ''}
                     ${product.reason ? `<div style="font-size:0.7rem; color:var(--amazon-orange); margin-top:3px;">💡 ${escapeHtml(product.reason)}</div>` : ''}
                     <button onclick="event.stopPropagation(); addToCart(${product.product_id}, '${safeTitle}')" style="margin-top:4px; font-size:0.7rem; padding:2px 8px; border:1px solid var(--border-light); border-radius:4px; background:white; cursor:pointer;">+ Add to cart</button>
+                    <button onclick="event.stopPropagation(); watchDealFromChat(${product.product_id})" style="margin-top:4px; margin-left:4px; font-size:0.7rem; padding:2px 8px; border:1px solid var(--border-light); border-radius:4px; background:white; cursor:pointer;">Watch price</button>
                 </div>`;
         });
         html += '</div>';
@@ -161,6 +274,29 @@ function addChatMessage(text, role, products = [], pendingActions = []) {
     });
 
     messageEl.innerHTML = html;
+    if (role === 'assistant' && feedbackMeta) {
+        const fb = document.createElement('div');
+        fb.className = 'chat-feedback';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.title = 'Helpful';
+        up.textContent = '👍';
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.title = 'Not helpful';
+        down.textContent = '👎';
+        const meta = {
+            message: feedbackMeta.message || '',
+            response: text || '',
+            tools_used: feedbackMeta.tools_used || [],
+            thread_id: feedbackMeta.thread_id || null,
+        };
+        up.onclick = () => sendChatFeedback('up', meta, fb);
+        down.onclick = () => sendChatFeedback('down', meta, fb);
+        fb.appendChild(up);
+        fb.appendChild(down);
+        messageEl.appendChild(fb);
+    }
     container.appendChild(messageEl);
 
     // Auto-scroll to bottom
@@ -175,12 +311,12 @@ function renderPendingAction(action) {
     const title = escapeHtml(action.product.title);
     const price = parseFloat(action.product.price) || 0;
     return `
-        <div id="cart-action-${action.action_id}" style="margin-top:8px; padding:8px; border:1px solid var(--amazon-orange); border-radius:6px; background:white;">
-            <div style="font-size:0.75rem; font-weight:600;">${escapeHtml(verbs[action.action] || action.action)} ${title}</div>
-            <div style="font-size:0.7rem; color:var(--text-light);">$${price.toFixed(2)} each${action.reason ? ' · ' + escapeHtml(action.reason) : ''}</div>
-            <div class="cart-action-buttons" style="display:flex; gap:6px; margin-top:6px;">
-                <button onclick="resolveCartAction('${action.action_id}', 'confirm')" style="font-size:0.7rem; padding:3px 10px; border:none; border-radius:4px; background:var(--amazon-orange); color:white; cursor:pointer;">Confirm</button>
-                <button onclick="resolveCartAction('${action.action_id}', 'reject')" style="font-size:0.7rem; padding:3px 10px; border:1px solid var(--border-light); border-radius:4px; background:white; cursor:pointer;">Dismiss</button>
+        <div id="cart-action-${action.action_id}" class="pending-cart-action">
+            <div class="pending-cart-title">${escapeHtml(verbs[action.action] || action.action)} ${title}</div>
+            <div class="pending-cart-meta">$${price.toFixed(2)} each${action.reason ? ' · ' + escapeHtml(action.reason) : ''}</div>
+            <div class="cart-action-buttons">
+                <button type="button" class="pending-confirm" onclick="resolveCartAction('${action.action_id}', 'confirm')">Confirm</button>
+                <button type="button" class="pending-dismiss" onclick="resolveCartAction('${action.action_id}', 'reject')">Dismiss</button>
             </div>
         </div>`;
 }
@@ -286,6 +422,102 @@ async function toggleVoiceRecording() {
     }
 }
 
+async function sendChatFeedback(rating, meta, el) {
+    try {
+        await fetch('/api/chat/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: state.currentUser || 1,
+                rating,
+                message: meta.message || '',
+                response: meta.response || '',
+                tools_used: meta.tools_used || [],
+                thread_id: meta.thread_id || null,
+            }),
+        });
+        if (el) el.innerHTML = `<span class="chat-feedback-done">${rating === 'up' ? 'Thanks!' : 'Got it'}</span>`;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function watchDealFromChat(productId) {
+    try {
+        const res = await fetch('/api/deals/watch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: state.currentUser || 1, product_id: productId }),
+        });
+        if (!res.ok) throw new Error('watch failed');
+        showToast('Watching for price drops');
+    } catch (e) {
+        showToast('Could not set price watch.', 'error');
+    }
+}
+
+async function refreshDealAlerts() {
+    const banner = document.getElementById('dealAlertsBanner');
+    if (!banner) return;
+    try {
+        const data = await api(`/deals/alerts/${state.currentUser || 1}?limit=5`);
+        const unread = (data.alerts || []).filter(a => !a.read);
+        if (!unread.length) {
+            banner.hidden = true;
+            banner.innerHTML = '';
+            return;
+        }
+        banner.hidden = false;
+        banner.innerHTML = unread.slice(0, 2).map(a =>
+            `<button type="button" onclick="sendSuggestion(${JSON.stringify(a.message || 'Show deal alerts')})">${escapeHtml(a.message || 'Price drop')}</button>`
+        ).join('');
+    } catch (_) { /* ignore */ }
+}
+
+async function sendImageChat(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file || isChatSending) return;
+
+    const userId = state.currentUser || 1;
+    addChatMessage('📷 Looking at your photo', 'user');
+    const typingId = addTypingIndicator();
+    isChatSending = true;
+    document.getElementById('chatSendBtn').disabled = true;
+
+    try {
+        const formData = new FormData();
+        formData.append('user_id', userId);
+        formData.append('message', 'Find a cheaper match for this product');
+        formData.append('file', file, file.name || 'photo.jpg');
+
+        const response = await fetch('/api/chat/image', { method: 'POST', body: formData });
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        const data = await response.json();
+        removeTypingIndicator(typingId);
+        if (data.transcription) {
+            rememberChatTurn(userId, data.transcription, null);
+        }
+        if (state.currentUser === userId) {
+            addChatMessage(data.response, 'assistant', data.products, data.pending_actions, {
+                message: data.transcription || 'image cheaper match',
+                tools_used: data.tools_used,
+                thread_id: data.thread_id,
+            });
+            if (state.currentUser === userId && data.active_context && data.active_context.length) updateActiveContext(data.active_context);
+        if (typeof applyUiActions === 'function') applyUiActions(data.ui_actions);
+        }
+        rememberChatTurn(userId, null, data.response);
+    } catch (error) {
+        console.error('Image chat error:', error);
+        removeTypingIndicator(typingId);
+        addChatMessage("Sorry, I couldn't process that photo.", 'assistant');
+    } finally {
+        isChatSending = false;
+        document.getElementById('chatSendBtn').disabled = false;
+    }
+}
+
 async function sendAudioChat(audioBlob) {
     if (isChatSending) return;
 
@@ -317,15 +549,12 @@ async function sendAudioChat(audioBlob) {
 
         const data = await response.json();
         removeTypingIndicator(typingId);
-        
-        // Show what was transcribed
-        if (data.transcription) {
-            addChatMessage(data.transcription, 'user');
-            chatHistory.push({ role: 'user', content: data.transcription });
-        }
+        rememberChatTurn(userId, data.transcription || '', data.response);
+        if (state.currentUser !== userId) return;
 
+        if (data.transcription) addChatMessage(data.transcription, 'user');
         addChatMessage(data.response, 'assistant', data.products, data.pending_actions);
-        chatHistory.push({ role: 'assistant', content: data.response });
+        if (typeof applyUiActions === 'function') applyUiActions(data.ui_actions);
 
     } catch (error) {
         console.error('Audio chat error:', error);

@@ -38,6 +38,19 @@ class CartActionRequest(BaseModel):
     user_id: int
 
 
+class PriceUpdateRequest(BaseModel):
+    product_id: int
+    price: float = Field(..., gt=0)
+    list_price: Optional[float] = Field(None, gt=0)
+    warehouse_id: str = "default"
+
+
+class StockUpdateRequest(BaseModel):
+    product_id: int
+    quantity: int = Field(..., ge=0)
+    warehouse_id: str = "default"
+
+
 # --- Response Schemas ---
 
 class ProductResponse(BaseModel):
@@ -92,6 +105,9 @@ class ChatResponse(BaseModel):
     active_context: List[str] = []
     pending_actions: List[dict] = []
     tools_used: List[str] = []
+    orchestrator: Optional[str] = None
+    thread_id: Optional[str] = None
+    ui_actions: List[dict] = []
 
 
 class ABTestGroupResult(BaseModel):

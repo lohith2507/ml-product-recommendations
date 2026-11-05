@@ -34,8 +34,11 @@ steps:
       - --memory=2Gi
       - --cpu=2
       - --timeout=300
+      - --concurrency=80
+      - --min-instances=1
+      - --cpu-boost
       - --service-account=${_SERVICE}@$PROJECT_ID.iam.gserviceaccount.com
-      - --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_CHAT_LOCATION},VERTEX_CHAT_LOCATION=${_CHAT_LOCATION},VERTEX_EMBED_LOCATION=${_REGION},VERTEX_CHAT_MODEL=gemini-3.5-flash,VERTEX_FALLBACK_MODEL=gemini-3.1-flash-lite,USE_VERTEX=1
+      - --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_CHAT_LOCATION},VERTEX_CHAT_LOCATION=${_CHAT_LOCATION},VERTEX_EMBED_LOCATION=${_REGION},VERTEX_CHAT_MODEL=gemini-3.5-flash,VERTEX_FALLBACK_MODEL=gemini-3.1-flash-lite,USE_VERTEX=1,USE_LANGGRAPH=1,PUBSUB_ENABLED=1,BQ_ENABLED=1,BQ_DATASET=shopping_agent,FIRESTORE_ENABLED=1,FACTS_CACHE_TTL_SEC=8,VECTOR_SEARCH_INDEX_ENDPOINT=projects/$PROJECT_ID/locations/${_REGION}/indexEndpoints/4192611559547076608,VECTOR_SEARCH_DEPLOYED_INDEX_ID=shopping_agent_products,VECTOR_SEARCH_API_ENDPOINT=958073001.us-central1-540129645619.vdb.vertexai.goog
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/shopping-agent/${_SERVICE}:$BUILD_ID

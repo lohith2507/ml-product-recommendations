@@ -1,0 +1,12 @@
+{
+  "model": "text-embedding-005",
+  "dim": 768,
+  "count": 5000,
+  "gcs_uri": "gs://shopping-agent-513607-vector-search/product-embeddings/",
+  "project": "shopping-agent-513607",
+  "region": "us-central1",
+  "index": "projects/540129645619/locations/us-central1/indexes/2585020006622298112",
+  "endpoint": "projects/540129645619/locations/us-central1/indexEndpoints/4192611559547076608",
+  "deployed_index_id": "shopping_agent_products",
+  "api_endpoint": "958073001.us-central1-540129645619.vdb.vertexai.goog"
+}

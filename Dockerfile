@@ -11,7 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VERTEX_EMBED_LOCATION=us-central1 \
     VERTEX_CHAT_MODEL=gemini-3.5-flash \
     VERTEX_FALLBACK_MODEL=gemini-3.1-flash-lite \
-    USE_VERTEX=1
+    USE_VERTEX=1 \
+    USE_LANGGRAPH=1 \
+    FIRESTORE_ENABLED=1 \
+    FACTS_CACHE_TTL_SEC=8
 
 WORKDIR /app
 
@@ -26,6 +29,7 @@ COPY app.py ./
 COPY api ./api
 COPY database ./database
 COPY recommenders ./recommenders
+COPY workers ./workers
 COPY static ./static
 COPY templates ./templates
 COPY recommendation.db ./

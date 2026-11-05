@@ -1,13 +1,15 @@
 """
 Product retrieval and best-deal ranking used by the shopping agent.
 
-Retrieval is semantic (FAISS) with a keyword fallback. Prices and discounts
-always come from the products table, never from the vector index.
+Retrieval is semantic (FAISS / Vector Search) with a keyword fallback.
+Prices and stock are re-hydrated from live product_facts (Pub/Sub), never
+trusted from the vector index alone.
 """
 
 import math
 
 from database.models import get_db, dict_from_row
+from recommenders.facts import apply_live_facts
 
 RELEVANCE_WEIGHT = 0.45
 SAVINGS_WEIGHT = 0.35
@@ -93,15 +95,24 @@ def _candidates(query, category, max_price, min_rating, top_k, retriever):
         p = dict_from_row(row)
         if category and (p.get("category") or "").lower() != category.lower():
             continue
-        if max_price is not None and (p.get("price") or 0) > max_price:
-            continue
         if min_rating is not None and (p.get("avg_rating") or 0) < min_rating:
             continue
         p["relevance"] = round(relevance.get(p["product_id"], 0.0), 4)
+        products.append(p)
+
+    # Live price/stock from streaming facts (Pub/Sub → product_facts).
+    products = apply_live_facts(products)
+    filtered = []
+    for p in products:
+        if max_price is not None and (p.get("price") or 0) > max_price:
+            continue
+        stock = p.get("stock_qty")
+        if stock is not None and stock <= 0:
+            continue
         p.update(deal_metrics(p))
         p["deal_score"] = deal_score(p, p["relevance"])
-        products.append(p)
-    return products
+        filtered.append(p)
+    return filtered
 
 
 def search_products(query, category=None, max_price=None, min_rating=None, limit=5, retriever=None):
@@ -128,9 +139,12 @@ def get_products(product_ids):
     by_id = {}
     for row in rows:
         p = dict_from_row(row)
-        p.update(deal_metrics(p))
         by_id[p["product_id"]] = p
-    return [by_id[i] for i in ids if i in by_id]
+    ordered = [by_id[i] for i in ids if i in by_id]
+    ordered = apply_live_facts(ordered)
+    for p in ordered:
+        p.update(deal_metrics(p))
+    return ordered
 
 
 def compact(product):
@@ -146,4 +160,106 @@ def compact(product):
         "savings_pct": round(product.get("savings_pct", 0.0) * 100, 1),
         "avg_rating": product.get("avg_rating"),
         "rating_count": product.get("rating_count"),
+    }
+
+
+def find_cheaper_match(product_id=None, query=None, limit=5, retriever=None):
+    """Find cheaper substitutes for a product (or free-text query from an image caption)."""
+    anchor = None
+    if product_id is not None:
+        products = get_products([int(product_id)])
+        if products:
+            anchor = products[0]
+    search_q = (query or "").strip()
+    if not search_q and anchor:
+        search_q = " ".join((anchor.get("title") or "").split()[:8])
+    if not search_q:
+        return {"error": "Provide product_id or query", "products": []}
+
+    max_price = None
+    if anchor and anchor.get("price"):
+        max_price = float(anchor["price"]) - 0.01
+
+    category = (anchor or {}).get("category")
+    candidates = find_best_deals(
+        search_q,
+        category=category,
+        max_price=max_price,
+        limit=max(limit * 3, 12),
+        retriever=retriever,
+    )
+    if anchor:
+        candidates = [c for c in candidates if c["product_id"] != anchor["product_id"]]
+    # Prefer same category first.
+    if category:
+        same = [c for c in candidates if (c.get("category") or "").lower() == category.lower()]
+        other = [c for c in candidates if c not in same]
+        candidates = same + other
+    out = candidates[:limit]
+    receipt = None
+    if anchor and out:
+        save = round(float(anchor["price"]) - float(out[0]["price"]), 2)
+        receipt = {
+            "anchor_product_id": anchor["product_id"],
+            "anchor_price": anchor.get("price"),
+            "cheaper_product_id": out[0]["product_id"],
+            "cheaper_price": out[0].get("price"),
+            "you_save_vs_anchor": save,
+            "why": (
+                f"${out[0].get('price')} vs ${anchor.get('price')} for similar "
+                f"{category or 'item'}; save ${save}."
+            ),
+        }
+    return {
+        "anchor": compact(anchor) if anchor else None,
+        "query": search_q,
+        "products": [compact(p) for p in out],
+        "receipt": receipt,
+    }
+
+
+def explain_substitute(product_id: int, alternative_id: int) -> dict:
+    """Receipt explaining why an alternative is a better/worse deal than the original."""
+    products = get_products([int(product_id), int(alternative_id)])
+    by_id = {p["product_id"]: p for p in products}
+    a = by_id.get(int(product_id))
+    b = by_id.get(int(alternative_id))
+    if not a or not b:
+        return {"error": "Unknown product id(s)"}
+    price_delta = round(float(a.get("price") or 0) - float(b.get("price") or 0), 2)
+    a_m = deal_metrics(a)
+    b_m = deal_metrics(b)
+    why_parts = []
+    if price_delta > 0:
+        why_parts.append(f"Alternative is ${price_delta} cheaper.")
+    elif price_delta < 0:
+        why_parts.append(f"Alternative costs ${-price_delta} more.")
+    else:
+        why_parts.append("Same price.")
+    if b_m["savings"] > a_m["savings"]:
+        why_parts.append(
+            f"Bigger discount off list (${b_m['savings']} vs ${a_m['savings']})."
+        )
+    if (b.get("avg_rating") or 0) >= (a.get("avg_rating") or 0):
+        why_parts.append(
+            f"Rating {b.get('avg_rating')} ({b.get('rating_count')} reviews) "
+            f"vs {a.get('avg_rating')} ({a.get('rating_count')})."
+        )
+    else:
+        why_parts.append(
+            f"Original has a higher rating ({a.get('avg_rating')} vs {b.get('avg_rating')})."
+        )
+    return {
+        "original": compact(a),
+        "alternative": compact(b),
+        "price_delta": price_delta,
+        "why": " ".join(why_parts),
+        "receipt": {
+            "original_price": a.get("price"),
+            "alternative_price": b.get("price"),
+            "original_list": a.get("list_price"),
+            "alternative_list": b.get("list_price"),
+            "original_savings": a_m["savings"],
+            "alternative_savings": b_m["savings"],
+        },
     }

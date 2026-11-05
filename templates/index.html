@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="AI-powered e-commerce product recommendation system with collaborative filtering, content-based filtering, and LLM hybrid approaches.">
-    <title>RecommendAI — Smart Product Discovery</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#131921">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="description" content="Shopping Chat Agent that finds deals, explains picks, and helps build your cart. Backed by collaborative, content-based, and hybrid AI recommenders.">
+    <title>Shopping Chat Agent | RecommendAI</title>
+    <link rel="stylesheet" href="/static/css/styles.css?v=12">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -16,12 +19,13 @@
             <div class="nav-brand" onclick="switchSection('recommendations')">
                 <div class="logo-icon">🧠</div>
                 <span>RecommendAI</span>
+                <span class="nav-brand-sub">Shopping Chat Agent</span>
             </div>
 
             <!-- Search Bar -->
             <div class="search-bar">
                 <select id="searchCategory">
-                    <option value="all">All Categories</option>
+                    <option value="all">All</option>
                 </select>
                 <input type="text" id="searchInput" placeholder="Search for products, brands and more..." onkeydown="if(event.key === 'Enter') searchProducts()">
                 <button onclick="document.getElementById('visualSearchInput').click()" title="Search by Image" style="background:#e3e6e6; border-right:1px solid #ccc;">📷</button>
@@ -50,21 +54,18 @@
     <div class="sub-navbar">
         <div class="container">
             <ul class="nav-links">
-                <a class="active" data-section="recommendations" onclick="switchSection('recommendations')">
-                    🎯 Recommendations
-                </a>
-                <a data-section="products" onclick="switchSection('products')">
-                    📦 All Products
-                </a>
-                <a data-section="analytics" onclick="switchSection('analytics')">
-                    📊 Analytics
-                </a>
-                <a data-section="abtest" onclick="switchSection('abtest')">
-                    🧪 A/B Testing
-                </a>
-                <a data-section="admin" onclick="switchSection('admin')">
-                    ⚙️ Admin Dashboard
-                </a>
+                <a class="active" data-section="recommendations" onclick="switchSection('recommendations')">Recommendations</a>
+                <a data-section="products" onclick="switchSection('products')">Catalog</a>
+                <a class="nav-chat-cta" onclick="openChatAgent()">Ask Chat Agent</a>
+                <div class="nav-labs">
+                    <button type="button" class="nav-labs-btn" onclick="toggleLabsMenu(event)">Labs ▾</button>
+                    <div class="nav-labs-menu" id="labsMenu">
+                        <a data-section="analytics" onclick="switchSection('analytics'); closeLabsMenu()">Analytics</a>
+                        <a data-section="abtest" onclick="switchSection('abtest'); closeLabsMenu()">A/B Testing</a>
+                        <a data-section="admin" onclick="switchSection('admin'); closeLabsMenu()">Admin</a>
+                        <a data-section="incidents" onclick="switchSection('incidents'); closeLabsMenu()">Incident AI</a>
+                    </div>
+                </div>
             </ul>
         </div>
     </div>
@@ -72,28 +73,19 @@
     <!-- Hero Banner -->
     <section class="hero">
         <div class="container">
-            <div class="hero-banner">
+            <div class="hero-banner hero-banner-chat">
                 <div class="hero-text">
-                    <h1>AI-Powered Product Recommendations</h1>
-                    <p>Personalized picks using Collaborative Filtering, Content-Based Analysis &amp; AI Hybrid — powered by real Amazon data.</p>
+                    <p class="hero-kicker">RecommendAI</p>
+                    <h1>Shopping Chat Agent</h1>
+                    <p>Ask for deals, compare options, and build your cart. The agent remembers your past chats and uses live prices.</p>
+                    <div class="hero-cta-row">
+                        <button type="button" class="hero-cta" onclick="openChatAgent()">Ask the Shopping Chat Agent</button>
+                        <button type="button" class="hero-cta-secondary" onclick="switchSection('products')">Browse catalog</button>
+                    </div>
                 </div>
-                <div class="hero-stats">
-                    <div class="hero-stat">
-                        <div class="stat-value" id="heroProducts">—</div>
-                        <div class="stat-label">Products</div>
-                    </div>
-                    <div class="hero-stat">
-                        <div class="stat-value" id="heroUsers">—</div>
-                        <div class="stat-label">Users</div>
-                    </div>
-                    <div class="hero-stat">
-                        <div class="stat-value" id="heroReviews">—</div>
-                        <div class="stat-label">Reviews</div>
-                    </div>
-                    <div class="hero-stat">
-                        <div class="stat-value" id="heroAlgorithms">3</div>
-                        <div class="stat-label">AI Engines</div>
-                    </div>
+                <div class="hero-stats hero-stats-compact" aria-hidden="true">
+                    <div class="hero-stat"><div class="stat-value" id="heroProducts">-</div><div class="stat-label">Products</div></div>
+                    <div class="hero-stat"><div class="stat-value" id="heroUsers">-</div><div class="stat-label">Members</div></div>
                 </div>
             </div>
         </div>
@@ -208,7 +200,7 @@
             </div>
             <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
                 <p>Generate highly personalized marketing emails for users based on their recent preferences and interactions.</p>
-                <div style="display:flex; gap:12px; align-items:center;">
+                <div class="marketing-controls">
                     <label><strong>Target User:</strong></label>
                     <select id="marketingUserSelect" class="form-control" style="padding:8px; border-radius:4px; border:1px solid #ccc; min-width:200px;">
                         <!-- Will be populated dynamically -->
@@ -219,64 +211,111 @@
             </div>
         </section>
 
+        <section id="section-incidents" class="section">
+            <div class="section-header">
+                <h2 class="section-title">Incident AI</h2>
+            </div>
+            <p style="margin-bottom:12px; color:var(--text-medium);">
+                Same loop as Lighthouse: triage, evidence, root cause, an allowlisted fix, then proof the fix held.
+                Rollback waits for approval.
+            </p>
+            <div class="hero-cta-row" style="margin-bottom:16px;">
+                <button type="button" class="hero-cta" onclick="runIncidentScenario('chat_errors')">Chat failures</button>
+                <button type="button" class="hero-cta-secondary" onclick="runIncidentScenario('vector_search_down')">Vector Search down</button>
+                <button type="button" class="hero-cta-secondary" onclick="runIncidentScenario('bad_deploy')">Bad revision</button>
+            </div>
+            <div id="incidentList" class="glass-card"><p>No incidents yet.</p></div>
+        </section>
+
     </main>
 
     <!-- Footer -->
     <footer class="footer">
-        <p>RecommendAI — Built with FastAPI, Surprise SVD, TF-IDF, and Groq Llama 3.3 | Powered by real Amazon product data</p>
+        <p>RecommendAI Shopping Chat Agent · FastAPI, Surprise SVD, TF-IDF, Vertex Gemini | Powered by real Amazon product data</p>
     </footer>
 
-    <!-- Chatbot -->
-    <button class="chatbot-toggle" id="chatToggle" onclick="toggleChat()" title="AI Shopping Agent">💬</button>
+    <div id="panelScrim" class="panel-scrim" onclick="closeOverlayPanels()" hidden></div>
+
+    <nav class="platform-dock" id="platformDock" aria-label="Primary">
+        <button type="button" data-dock="recommendations" class="active" onclick="switchSection('recommendations')">
+            <span aria-hidden="true">✦</span><span>For you</span>
+        </button>
+        <button type="button" data-dock="products" onclick="switchSection('products')">
+            <span aria-hidden="true">▦</span><span>Catalog</span>
+        </button>
+        <button type="button" data-dock="chat" onclick="openChatAgent()">
+            <span aria-hidden="true">💬</span><span>Chat</span>
+        </button>
+        <button type="button" data-dock="cart" onclick="toggleCart()">
+            <span aria-hidden="true">🛒</span><span>Cart</span>
+        </button>
+    </nav>
+
+    <!-- Shopping Chat Agent -->
+    <button class="chatbot-toggle" id="chatToggle" onclick="toggleChat()" title="Open Shopping Chat Agent" aria-label="Open Shopping Chat Agent">
+        <span class="chatbot-toggle-icon">💬</span>
+        <span class="chatbot-toggle-label">Chat Agent</span>
+    </button>
 
     <div class="chatbot-panel" id="chatPanel">
         <div class="chat-header">
             <div class="chat-avatar">🤖</div>
             <div class="chat-info">
-                <h4>AI Shopping Agent</h4>
-                <p>● Online — finds deals and builds your cart</p>
+                <h4>Shopping Chat Agent</h4>
+                <p>● Online · remembers your chats · live prices</p>
             </div>
+            <button type="button" class="chat-clear-btn" onclick="clearChatMemory()">Clear memory</button>
+            <button type="button" class="panel-close" onclick="closeChatAgent()" aria-label="Close chat">&times;</button>
         </div>
+        <div class="chat-suggestions" id="chatSuggestions">
+            <button type="button" onclick="sendSuggestion('What are the best deals?')">Best deals</button>
+            <button type="button" onclick="sendSuggestion('Build a $100 back-to-school kit with backpack and lunch box')">$100 kit</button>
+            <button type="button" onclick="sendSuggestion('What is in my cart and how much am I saving?')">Cart savings</button>
+            <button type="button" onclick="sendSuggestion('Any price drop alerts?')">Deal alerts</button>
+        </div>
+        <div id="dealAlertsBanner" class="deal-alerts-banner" hidden></div>
         <div class="chat-messages" id="chatMessages">
             <div class="chat-message assistant">
-                Hi! I'm your shopping agent. Tell me what you need and your budget. I'll find the best deals and can add items to your cart once you confirm.
+                Hi! I'm your Shopping Chat Agent. Ask for deals, compare items, or say "like last time" and I'll use your past chats. Cart changes need your confirm.
             </div>
         </div>
-        <div id="chatActiveContext" style="display:none; padding:8px 12px; background:#fff; border-top:1px solid #e0e0e0; font-size:0.75rem; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center;">
-            <div id="chatContextTags" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
-            <button onclick="clearChatMemory()" style="background:none; border:none; color:var(--amazon-red); cursor:pointer; font-size:0.7rem; font-weight:bold;">Clear Memory</button>
+        <div id="chatActiveContext" class="chat-active-context">
+            <div id="chatContextTags"></div>
         </div>
         <div class="chat-input-wrapper">
+            <input type="file" id="chatImageInput" accept="image/*" hidden onchange="sendImageChat(this)">
             <input type="text" class="chat-input" id="chatInput"
-                   placeholder="e.g. Best deal on backpacks under $40"
+                   placeholder="Ask: deals, cheaper match, prefs, checkout..."
                    onkeydown="if(event.key==='Enter') sendChat()">
-            <button class="chat-voice-btn" onclick="toggleVoiceRecording()" id="chatVoiceBtn" title="Hold to record voice">🎤</button>
-            <button class="chat-send-btn" onclick="sendChat()" id="chatSendBtn">➤</button>
+            <button type="button" class="chat-voice-btn" onclick="document.getElementById('chatImageInput').click()" id="chatImageBtn" title="Find cheaper from photo">📷</button>
+            <button type="button" class="chat-voice-btn" onclick="toggleVoiceRecording()" id="chatVoiceBtn" title="Record voice">🎤</button>
+            <button type="button" class="chat-send-btn" onclick="sendChat()" id="chatSendBtn">➤</button>
         </div>
     </div>
 
     <!-- Shopping Cart Sidebar -->
-    <div id="cartSidebar" class="chatbot-panel" style="width:450px; right:-470px; display:flex; transition:right 0.3s ease;">
+    <div id="cartSidebar" class="cart-panel">
         <div class="chat-header">
             <div class="chat-info">
-                <h4>🛒 Shopping Cart</h4>
+                <h4>Shopping Cart</h4>
+                <p id="cartSavingsHint">Live prices from the store</p>
             </div>
-            <button onclick="toggleCart()" style="background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;">&times;</button>
+            <button type="button" class="panel-close" onclick="toggleCart()" aria-label="Close cart">&times;</button>
         </div>
-        <div id="cartItems" style="flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; background:var(--bg-light);">
+        <div id="cartItems" class="cart-items">
             <div class="empty-state"><p>Your cart is empty.</p></div>
         </div>
-        <div style="padding:16px; background:white; border-top:1px solid var(--border-light);">
-            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.1rem; margin-bottom:12px;">
-                <span>Subtotal</span>
-                <span id="cartSubtotal">$0.00</span>
+        <div class="cart-footer">
+            <div class="cart-totals">
+                <div><span>Subtotal</span><span id="cartSubtotal">$0.00</span></div>
+                <div class="cart-savings-row"><span>You save</span><span id="cartSavingsTotal">$0.00</span></div>
             </div>
-            <button class="chat-send-btn" style="width:100%; border-radius:8px;">Proceed to Checkout</button>
+            <button type="button" class="cart-checkout-btn" onclick="proceedToCheckout()">Proceed to Checkout</button>
         </div>
-        <div style="padding:12px; background:var(--bg-light); border-top:1px solid var(--border-light); max-height:200px; overflow-y:auto;">
-            <h5 style="margin-bottom:8px; font-size:0.85rem; color:var(--text-medium);">Frequently Bought Together</h5>
-            <div id="cartRecsContainer" style="display:flex; flex-direction:column; gap:8px;">
-                <p style="font-size:0.75rem; color:var(--text-light);">Add items to cart to see recommendations.</p>
+        <div class="cart-recs">
+            <h5>Frequently bought together</h5>
+            <div id="cartRecsContainer">
+                <p class="cart-recs-empty">Add items to see recommendations.</p>
             </div>
         </div>
     </div>
@@ -298,10 +337,10 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/app.js?v=2"></script>
-    <script src="/static/js/recommendations.js"></script>
-    <script src="/static/js/chatbot.js?v=2"></script>
-    <script src="/static/js/analytics.js"></script>
+    <script src="/static/js/app.js?v=12"></script>
+    <script src="/static/js/recommendations.js?v=12"></script>
+    <script src="/static/js/chatbot.js?v=12"></script>
+    <script src="/static/js/analytics.js?v=12"></script>
 
 </body>
 </html>

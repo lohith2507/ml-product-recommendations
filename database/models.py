@@ -130,6 +130,18 @@ def init_db():
                 FOREIGN KEY (product_id) REFERENCES products(product_id)
             );
 
+            -- Live price/stock facts fed by Pub/Sub streaming events (Bigtable stand-in)
+            CREATE TABLE IF NOT EXISTS product_facts (
+                product_id INTEGER NOT NULL,
+                warehouse_id TEXT NOT NULL DEFAULT 'default',
+                price REAL,
+                list_price REAL,
+                stock_qty INTEGER DEFAULT 100,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (product_id, warehouse_id),
+                FOREIGN KEY (product_id) REFERENCES products(product_id)
+            );
+
             -- Indexes for fast lookups
             CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
             CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
@@ -141,6 +153,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_ab_experiments_user ON ab_experiments(user_id);
             CREATE INDEX IF NOT EXISTS idx_ab_experiments_algo ON ab_experiments(algorithm_group);
             CREATE INDEX IF NOT EXISTS idx_agent_cart_actions_user ON agent_cart_actions(user_id, status);
+            CREATE INDEX IF NOT EXISTS idx_product_facts_updated ON product_facts(updated_at);
         """)
     print("[OK] Database schema initialized successfully.")
 

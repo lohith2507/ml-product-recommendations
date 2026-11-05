@@ -16,3 +16,7 @@ dist/
 build/
 dataset/amazon_products.csv
 *.index
+vector_search_embeddings.json
+endpoints.txt
+vector_search_embeddings.json
+endpoints.txt

@@ -19,6 +19,28 @@ PRODUCTS = [
 @pytest.fixture(autouse=True)
 def db(tmp_path, monkeypatch):
     monkeypatch.setattr(models, "DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("PUBSUB_ENABLED", "0")
+    monkeypatch.setenv("BQ_ENABLED", "0")
+    monkeypatch.setenv("FIRESTORE_ENABLED", "0")
+    from recommenders.store import reset_stores
+    from recommenders.chat_memory import reset_chat_memory, set_embed_fn, MemoryChatMemoryStore
+    import recommenders.chat_memory as chat_memory_mod
+
+    reset_stores()
+    reset_chat_memory()
+    # Deterministic tiny embeddings for RAG unit tests (no Vertex).
+    def fake_embed(texts):
+        out = []
+        for t in texts:
+            v = [0.0] * 32
+            for token in t.lower().replace("\n", " ").split():
+                h = sum(ord(c) for c in token)
+                v[h % 32] += 1.0 + (len(token) % 5) * 0.1
+            out.append(v)
+        return out
+
+    set_embed_fn(fake_embed)
+    chat_memory_mod._store = MemoryChatMemoryStore()
     models.init_db()
     with models.get_db() as conn:
         conn.execute("INSERT INTO users (user_id, username) VALUES (1, 'alice'), (2, 'bob')")
@@ -27,6 +49,8 @@ def db(tmp_path, monkeypatch):
             PRODUCTS,
         )
     yield
+    reset_stores()
+    reset_chat_memory()
 
 
 @pytest.fixture

@@ -13,6 +13,7 @@ from api.schemas import (
     ChatRequest, ClickRequest, ChatResponse,
     ABTestResponse, AnalyticsResponse, CartRequest,
     CartItemRequest, CartQuantityRequest, CartActionRequest,
+    PriceUpdateRequest, StockUpdateRequest,
 )
 from recommenders.semantic import semantic_engine
 from recommenders import cart as cart_service
@@ -406,7 +407,7 @@ async def recommend_also_bought(product_id: int, n: int = Query(10, le=50)):
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
-    """Shopping agent: searches, finds deals, and proposes cart changes for the member to confirm."""
+    """Shopping agent: searches, finds deals, and can drive the page for this member."""
     try:
         result = shopping_agent.chat(
             user_id=request.user_id,
@@ -415,10 +416,42 @@ def chat(request: ChatRequest):
         )
         return ChatResponse(**result)
     except Exception as e:
+        print(f"⚠️ chat endpoint failed: {str(e)[:300]}")
+        products = []
+        try:
+            products = deals.find_best_deals(request.message or "", limit=5)
+        except Exception:
+            products = []
         return ChatResponse(
-            response=f"Sorry, I encountered an error. Please try again! ({str(e)[:100]})",
-            products=[]
+            response="I couldn't finish that step. Here are the closest matches I can show.",
+            products=products,
         )
+
+
+@router.get("/chat/thread/{user_id}")
+def get_chat_thread(user_id: int):
+    """Persisted chat transcript for this member only."""
+    from recommenders.store import get_thread_store
+
+    raw = get_thread_store().load_messages(f"user_{user_id}")
+    messages = []
+    for msg in raw[-20:]:
+        role = msg.get("role")
+        content = msg.get("content")
+        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+            messages.append({"role": role, "content": content})
+    return {"user_id": user_id, "thread_id": f"user_{user_id}", "messages": messages}
+
+
+@router.delete("/chat/memory/{user_id}")
+def clear_member_chat_memory(user_id: int):
+    """Drop this member's transcript and retrieved chat memory."""
+    from recommenders.chat_memory import get_chat_memory_store
+    from recommenders.store import get_thread_store
+
+    get_thread_store().save_messages(f"user_{user_id}", [])
+    get_chat_memory_store().clear_user(user_id)
+    return {"ok": True, "user_id": user_id}
 
 
 @router.post("/chat/audio", response_model=ChatResponse)
@@ -465,6 +498,118 @@ async def chat_audio(user_id: int = Form(...), conversation_history: str = Form(
         )
 
 
+@router.post("/chat/image", response_model=ChatResponse)
+async def chat_image(
+    user_id: int = Form(...),
+    message: str = Form("Find a cheaper match for this product"),
+    conversation_history: str = Form("[]"),
+    file: UploadFile = File(...),
+):
+    """Match the uploaded photo to the same kind of product. Ignore prior chat topics."""
+    from recommenders.image_match import caption_product_image, products_for_caption
+
+    contents = await file.read()
+    caption = caption_product_image(contents, file.content_type)
+    if not caption:
+        return ChatResponse(
+            response="I couldn't tell what product is in that photo. Try a closer picture of one item.",
+            products=[],
+            transcription="",
+            active_context=["Photo search"],
+            tools_used=["photo_search"],
+        )
+    products = products_for_caption(caption, limit=5)
+    shown = [{**p, "algorithm": "photo_search"} for p in products]
+    if shown:
+        text = f"I read your photo as {caption}. These are the closest matches in the catalog."
+    else:
+        text = (
+            f"I read your photo as {caption}. "
+            "Nothing in the catalog matches that, so I left out unrelated items."
+        )
+    return ChatResponse(
+        response=text,
+        products=shown,
+        transcription=caption,
+        active_context=["Photo search", caption],
+        tools_used=["photo_search"],
+    )
+
+
+@router.get("/cart/{user_id}/checkout")
+def cart_checkout_handoff(user_id: int):
+    from recommenders import checkout as checkout_service
+
+    return _cart_call(checkout_service.cart_checkout, user_id)
+
+
+@router.get("/prefs/{user_id}")
+def get_prefs(user_id: int):
+    from recommenders import member_prefs
+
+    prefs = member_prefs.get_prefs(user_id)
+    return {"prefs": prefs, "summary": member_prefs.format_prefs_for_prompt(prefs)}
+
+
+@router.put("/prefs/{user_id}")
+def put_prefs(user_id: int, body: dict):
+    from recommenders import member_prefs
+
+    prefs = member_prefs.update_prefs(user_id, body or {})
+    return {"prefs": prefs, "summary": member_prefs.format_prefs_for_prompt(prefs)}
+
+
+@router.get("/deals/alerts/{user_id}")
+def get_deal_alerts(user_id: int, limit: int = Query(20, ge=1, le=50)):
+    from recommenders import deal_watch
+
+    alerts = deal_watch.list_alerts(user_id, limit=limit)
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@router.post("/deals/watch")
+def watch_deal(body: dict):
+    from recommenders import deal_watch
+
+    user_id = int(body.get("user_id") or 0)
+    product_id = int(body.get("product_id") or 0)
+    target = body.get("target_price")
+    entry = deal_watch.watch_product(user_id, product_id, float(target) if target is not None else None)
+    return {"ok": True, "watch": entry}
+
+
+@router.post("/chat/feedback")
+def chat_feedback(body: dict):
+    from recommenders import eval_loop
+
+    try:
+        row = eval_loop.record_feedback(
+            user_id=int(body.get("user_id") or 1),
+            rating=str(body.get("rating") or ""),
+            message=str(body.get("message") or ""),
+            response=str(body.get("response") or ""),
+            tools_used=body.get("tools_used") or [],
+            thread_id=body.get("thread_id"),
+        )
+        return {"ok": True, "feedback": row}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/admin/eval/golden")
+def run_golden_eval():
+    from recommenders import eval_loop
+
+    return eval_loop.run_golden(shopping_agent, user_id=1)
+
+
+@router.get("/admin/eval/feedback")
+def eval_feedback_stats():
+    from recommenders import eval_loop
+
+    return eval_loop.feedback_stats()
+
+
 # ========== Cart Endpoints ==========
 
 def _cart_call(fn, *args):
@@ -505,6 +650,50 @@ def reject_cart_action(action_id: str, request: CartActionRequest):
     return _cart_call(cart_service.reject_action, action_id, request.user_id)
 
 
+@router.get("/incidents")
+def list_incidents():
+    from recommenders.incident_ai import STORE
+    return {"incidents": [i.to_dict() for i in STORE.list()]}
+
+
+@router.get("/incidents/{incident_id}")
+def get_incident(incident_id: str):
+    from recommenders.incident_ai import STORE
+    incident = STORE.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Unknown incident")
+    return incident.to_dict()
+
+
+@router.post("/incidents/alerts")
+def ingest_incident_alert(body: dict):
+    from recommenders.incident_ai import investigate_signals
+    title = str(body.get("title") or "Shopping agent alert")
+    severity = str(body.get("severity") or "P2")
+    signals = body.get("signals") or {}
+    incident = investigate_signals(signals, title, severity)
+    return incident.to_dict()
+
+
+@router.post("/incidents/scenarios/{name}")
+def run_incident_scenario(name: str):
+    from recommenders.incident_ai import SCENARIOS, investigate_signals
+    scenario = SCENARIOS.get(name)
+    if scenario is None:
+        raise HTTPException(status_code=404, detail="Unknown scenario")
+    incident = investigate_signals(scenario["signals"], scenario["title"], scenario["severity"])
+    return incident.to_dict()
+
+
+@router.post("/incidents/{incident_id}/approve")
+def approve_incident(incident_id: str):
+    from recommenders.incident_ai import approve
+    incident = approve(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Unknown incident")
+    return incident.to_dict()
+
+
 @router.get("/deals")
 def best_deals(
     q: str = "",
@@ -514,6 +703,57 @@ def best_deals(
 ):
     products = deals.find_best_deals(q, category=category, max_price=max_price, limit=limit)
     return {"products": products, "count": len(products)}
+
+
+# ========== Streaming events (Pub/Sub push + admin publishers) ==========
+
+@router.post("/events/pubsub")
+async def pubsub_push(body: dict):
+    """Pub/Sub push endpoint — updates live facts and sinks analytics."""
+    from workers.event_worker import handle_push_request
+
+    try:
+        result = handle_push_request(body)
+        return {"ok": True, **result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/admin/price")
+def admin_update_price(request: PriceUpdateRequest):
+    """Publish a price change (also applied locally so demos work without push lag)."""
+    from recommenders import facts
+    from recommenders.events import get_publisher
+
+    facts.upsert_price(request.product_id, request.price, request.list_price, request.warehouse_id)
+    msg_id = get_publisher().price_changed(
+        request.product_id, request.price, request.list_price, request.warehouse_id
+    )
+    alerts = []
+    try:
+        from recommenders import deal_watch
+
+        alerts = deal_watch.check_price_drop(request.product_id, request.price)
+    except Exception as e:
+        print(f"⚠️ deal watch on admin price skipped: {e}")
+    return {
+        "ok": True,
+        "product_id": request.product_id,
+        "price": request.price,
+        "message_id": msg_id,
+        "alerts_fired": len(alerts),
+    }
+
+
+@router.post("/admin/stock")
+def admin_update_stock(request: StockUpdateRequest):
+    """Publish a stock change (also applied locally)."""
+    from recommenders import facts
+    from recommenders.events import get_publisher
+
+    facts.upsert_stock(request.product_id, request.quantity, request.warehouse_id)
+    msg_id = get_publisher().stock_changed(request.product_id, request.quantity, request.warehouse_id)
+    return {"ok": True, "product_id": request.product_id, "quantity": request.quantity, "message_id": msg_id}
 
 
 @router.get("/admin/generate-email")

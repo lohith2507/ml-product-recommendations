@@ -2,13 +2,14 @@
 Server-side shopping cart.
 
 Members change the cart directly from the UI. The shopping agent can only
-*propose* changes (stored in agent_cart_actions); a proposal is applied once,
+*propose* changes (stored in cart_actions); a proposal is applied once,
 when the member confirms it.
+
+Hot path is backed by Firestore in production (see recommenders.store);
+SQLite remains the default for local/tests.
 """
 
-import uuid
-
-from database.models import get_db, dict_from_row
+from recommenders.store import get_cart_store, product_snapshot, require_user
 
 MAX_QUANTITY = 99
 ACTIONS = ("add", "set", "remove")
@@ -16,21 +17,6 @@ ACTIONS = ("add", "set", "remove")
 
 class CartError(ValueError):
     """Invalid cart request (unknown user/product, bad quantity, stale action)."""
-
-
-def _require_user(conn, user_id):
-    if not conn.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone():
-        raise CartError(f"Unknown user {user_id}")
-
-
-def _require_product(conn, product_id):
-    row = conn.execute(
-        "SELECT product_id, title, price, list_price, image_url, category FROM products WHERE product_id = ?",
-        (product_id,),
-    ).fetchone()
-    if not row:
-        raise CartError(f"Unknown product {product_id}")
-    return dict_from_row(row)
 
 
 def _validate_quantity(action, quantity):
@@ -41,55 +27,38 @@ def _validate_quantity(action, quantity):
         raise CartError(f"Quantity must be between {low} and {MAX_QUANTITY}")
 
 
-def _apply(conn, user_id, product_id, action, quantity):
-    if action == "add":
-        conn.execute(
-            """
-            INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)
-            ON CONFLICT(user_id, product_id) DO UPDATE SET
-                quantity = MIN(quantity + excluded.quantity, ?),
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (user_id, product_id, quantity, MAX_QUANTITY),
-        )
-    elif action == "set" and quantity > 0:
-        conn.execute(
-            """
-            INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)
-            ON CONFLICT(user_id, product_id) DO UPDATE SET
-                quantity = excluded.quantity,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (user_id, product_id, quantity),
-        )
-    else:
-        conn.execute(
-            "DELETE FROM cart_items WHERE user_id = ? AND product_id = ?",
-            (user_id, product_id),
-        )
+def _require_user(user_id):
+    if not require_user(user_id):
+        raise CartError(f"Unknown user {user_id}")
 
 
-def _read_cart(conn, user_id):
-    rows = conn.execute(
-        """
-        SELECT c.product_id, c.quantity, p.title, p.category, p.price, p.list_price, p.image_url
-        FROM cart_items c
-        JOIN products p ON p.product_id = c.product_id
-        WHERE c.user_id = ?
-        ORDER BY c.updated_at DESC, c.product_id
-        """,
-        (user_id,),
-    ).fetchall()
+def _require_product(product_id):
+    try:
+        return product_snapshot(product_id)
+    except LookupError as e:
+        raise CartError(str(e)) from e
 
+
+def _read_cart(user_id):
+    from recommenders.facts import apply_live_facts
+
+    raw_items = get_cart_store().get_cart_items(user_id)
     items, subtotal, savings = [], 0.0, 0.0
-    for r in rows:
-        item = dict_from_row(r)
-        price = item["price"] or 0.0
-        list_price = item["list_price"] or 0.0
+    for row in raw_items:
+        try:
+            product = product_snapshot(row["product_id"])
+        except LookupError:
+            continue
+        product["quantity"] = row["quantity"]
+        items.append(product)
+
+    items = apply_live_facts(items)
+    for item in items:
+        price = item.get("price") or 0.0
+        list_price = item.get("list_price") or 0.0
         subtotal += price * item["quantity"]
         if list_price > price > 0:
             savings += (list_price - price) * item["quantity"]
-        items.append(item)
 
     return {
         "user_id": user_id,
@@ -101,9 +70,8 @@ def _read_cart(conn, user_id):
 
 
 def get_cart(user_id):
-    with get_db() as conn:
-        _require_user(conn, user_id)
-        return _read_cart(conn, user_id)
+    _require_user(user_id)
+    return _read_cart(user_id)
 
 
 def update_cart(user_id, product_id, action, quantity=1):
@@ -111,11 +79,16 @@ def update_cart(user_id, product_id, action, quantity=1):
     if action not in ACTIONS:
         raise CartError(f"Unknown cart action '{action}'")
     _validate_quantity(action, quantity)
-    with get_db() as conn:
-        _require_user(conn, user_id)
-        _require_product(conn, product_id)
-        _apply(conn, user_id, product_id, action, quantity)
-        return _read_cart(conn, user_id)
+    _require_user(user_id)
+    _require_product(product_id)
+    get_cart_store().apply_item(user_id, product_id, action, quantity, MAX_QUANTITY)
+    cart = _read_cart(user_id)
+    try:
+        from recommenders.events import get_publisher
+        get_publisher().cart_event(user_id, action, product_id, quantity)
+    except Exception as e:
+        print(f"⚠️ cart event publish skipped: {e}")
+    return cart
 
 
 def propose_action(user_id, product_id, action, quantity=1, reason=""):
@@ -123,17 +96,9 @@ def propose_action(user_id, product_id, action, quantity=1, reason=""):
     if action not in ACTIONS:
         raise CartError(f"Unknown cart action '{action}'")
     _validate_quantity(action, quantity)
-    action_id = uuid.uuid4().hex
-    with get_db() as conn:
-        _require_user(conn, user_id)
-        product = _require_product(conn, product_id)
-        conn.execute(
-            """
-            INSERT INTO agent_cart_actions (action_id, user_id, product_id, action, quantity, reason)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (action_id, user_id, product_id, action, quantity, (reason or "")[:300]),
-        )
+    _require_user(user_id)
+    product = _require_product(product_id)
+    action_id = get_cart_store().propose_action(user_id, product_id, action, quantity, reason or "")
     return {
         "action_id": action_id,
         "action": action,
@@ -148,46 +113,30 @@ def confirm_action(action_id, user_id):
     Apply a proposed action exactly once. Confirming an already-applied action
     returns the current cart without changing it again.
     """
-    with get_db() as conn:
-        claimed = conn.execute(
-            """
-            UPDATE agent_cart_actions
-            SET status = 'applied', resolved_at = CURRENT_TIMESTAMP
-            WHERE action_id = ? AND user_id = ? AND status = 'proposed'
-            """,
-            (action_id, user_id),
-        ).rowcount
+    store = get_cart_store()
+    claimed = store.claim_action(action_id, user_id)
+    row = store.get_action(action_id, user_id)
+    if not row:
+        raise CartError("Cart action not found")
+    if row["status"] == "rejected":
+        raise CartError("Cart action was dismissed")
 
-        row = conn.execute(
-            "SELECT * FROM agent_cart_actions WHERE action_id = ? AND user_id = ?",
-            (action_id, user_id),
-        ).fetchone()
-        if not row:
-            raise CartError("Cart action not found")
-        if row["status"] == "rejected":
-            raise CartError("Cart action was dismissed")
-
-        if claimed:
-            _apply(conn, user_id, row["product_id"], row["action"], row["quantity"])
-        return _read_cart(conn, user_id)
+    if claimed:
+        store.apply_item(user_id, row["product_id"], row["action"], row["quantity"], MAX_QUANTITY)
+        try:
+            from recommenders.events import get_publisher
+            get_publisher().cart_event(
+                user_id, row["action"], row["product_id"], row["quantity"], action_id=action_id, source="agent_confirm"
+            )
+        except Exception as e:
+            print(f"⚠️ cart event publish skipped: {e}")
+    return _read_cart(user_id)
 
 
 def reject_action(action_id, user_id):
-    with get_db() as conn:
-        conn.execute(
-            """
-            UPDATE agent_cart_actions
-            SET status = 'rejected', resolved_at = CURRENT_TIMESTAMP
-            WHERE action_id = ? AND user_id = ? AND status = 'proposed'
-            """,
-            (action_id, user_id),
-        )
-        row = conn.execute(
-            "SELECT status FROM agent_cart_actions WHERE action_id = ? AND user_id = ?",
-            (action_id, user_id),
-        ).fetchone()
-    if not row:
+    status = get_cart_store().reject_action(action_id, user_id)
+    if status is None:
         raise CartError("Cart action not found")
-    if row["status"] == "applied":
+    if status == "applied":
         raise CartError("Cart action was already applied")
-    return {"action_id": action_id, "status": row["status"]}
+    return {"action_id": action_id, "status": status}

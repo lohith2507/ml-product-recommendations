@@ -15,14 +15,21 @@ const state = {
 };
 
 // ========== API Helper ==========
+const API_BASE_URL = '/api';
+
 async function api(endpoint, options = {}) {
     try {
-        const response = await fetch(`/api${endpoint}`, {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             headers: { 'Content-Type': 'application/json' },
             ...options,
         });
         if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
+            let detail = `API error: ${response.status}`;
+            try {
+                const body = await response.json();
+                if (body && body.detail) detail = typeof body.detail === 'string' ? body.detail : detail;
+            } catch (_) { /* ignore */ }
+            throw new Error(detail);
         }
         return await response.json();
     } catch (error) {
@@ -32,11 +39,180 @@ async function api(endpoint, options = {}) {
 }
 
 // ========== Initialization ==========
+function applyPlatformLayout() {
+    const ua = navigator.userAgent || '';
+    const touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    const iPad = /iPad/.test(ua) || touchMac;
+    const ios = /iPhone|iPod/.test(ua) || iPad;
+    const android = /Android/.test(ua);
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const width = window.innerWidth;
+    let form = 'desktop';
+    if (width < 700) form = 'phone';
+    else if (width < 1100 || (coarse && width < 1400)) form = 'tablet';
+    const root = document.documentElement;
+    root.dataset.form = form;
+    root.dataset.os = ios ? 'ios' : android ? 'android' : 'other';
+    root.dataset.pointer = coarse ? 'coarse' : 'fine';
+}
+
+function syncOverlay() {
+    const chatOpen = document.getElementById('chatPanel')?.classList.contains('open');
+    const cartOpen = document.getElementById('cartSidebar')?.classList.contains('open');
+    const scrim = document.getElementById('panelScrim');
+    const form = document.documentElement.dataset.form;
+    const show = (chatOpen || cartOpen) && form !== 'desktop';
+    if (scrim) scrim.hidden = !show;
+    document.body.classList.toggle('overlay-open', !!(chatOpen || cartOpen));
+    document.querySelectorAll('.platform-dock button').forEach(btn => {
+        const key = btn.dataset.dock;
+        const on = (key === 'chat' && chatOpen) || (key === 'cart' && cartOpen) ||
+            (!chatOpen && !cartOpen && key === state.currentSection);
+        btn.classList.toggle('active', !!on);
+    });
+}
+
+function closeOverlayPanels() {
+    document.getElementById('chatPanel')?.classList.remove('open');
+    document.getElementById('chatToggle')?.classList.remove('is-open');
+    const icon = document.querySelector('#chatToggle .chatbot-toggle-icon');
+    const label = document.querySelector('#chatToggle .chatbot-toggle-label');
+    if (icon) icon.textContent = '💬';
+    if (label) label.textContent = 'Chat Agent';
+    document.getElementById('cartSidebar')?.classList.remove('open');
+    syncOverlay();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+    applyPlatformLayout();
+    window.addEventListener('resize', () => {
+        applyPlatformLayout();
+        syncOverlay();
+    });
+    window.addEventListener('orientationchange', () => {
+        applyPlatformLayout();
+        syncOverlay();
+    });
     await loadUsers();
     await loadHeroStats();
     await loadCategories();
+    await loadCart();
+    if (typeof refreshDealAlerts === 'function') {
+        refreshDealAlerts();
+        setInterval(refreshDealAlerts, 60000);
+    }
 });
+
+async function proceedToCheckout() {
+    try {
+        const data = await api(`/cart/${cartUserId()}/checkout`);
+        if (!data.primary_url && !(data.items || []).length) {
+            showToast('Your cart is empty.', 'error');
+            return;
+        }
+        if (data.primary_url) {
+            window.open(data.primary_url, '_blank', 'noopener');
+        }
+        const extra = (data.items || []).slice(1, 4);
+        if (extra.length) {
+            showToast(`Opened checkout. ${extra.length} more item link(s) in console.`);
+            console.info('Checkout links', data.items);
+        } else {
+            showToast('Opened store checkout');
+        }
+    } catch (e) {
+        showToast(e.message || 'Checkout handoff failed.', 'error');
+    }
+}
+
+async function loadIncidents() {
+    const box = document.getElementById('incidentList');
+    if (!box) return;
+    try {
+        const data = await api('/incidents');
+        const items = data.incidents || [];
+        if (!items.length) {
+            box.innerHTML = '<p>No incidents yet. Run a scenario above.</p>';
+            return;
+        }
+        box.innerHTML = items.map(item => `
+            <article style="padding:12px 0; border-bottom:1px solid var(--border-light);">
+                <strong>${escapeHtml(item.title)}</strong>
+                <div style="font-size:0.85rem; color:var(--text-medium); margin-top:4px;">
+                    ${escapeHtml(item.severity)} · ${escapeHtml(item.status)} · ${escapeHtml(item.category)} · ${Math.round((item.confidence || 0) * 100)}%
+                </div>
+                <p style="margin-top:6px;">${escapeHtml(item.summary || '')}</p>
+                ${(item.evidence || []).slice(0, 3).map(e => `<div style="font-size:0.8rem;">Evidence: ${escapeHtml(e)}</div>`).join('')}
+                ${(item.remediations || []).map(r => `<div style="font-size:0.8rem; margin-top:8px;">${escapeHtml(r.title)}: ${escapeHtml(r.status)}${r.result ? '. ' + escapeHtml(r.result) : ''}</div>`).join('')}
+                ${item.status === 'pending_approval' ? `<button type="button" class="hero-cta" style="margin-top:8px;" onclick="approveIncident('${item.id}')">Approve fix</button>` : ''}
+                ${item.postmortem ? `<pre style="white-space:pre-wrap; font-size:0.78rem; margin-top:8px;">${escapeHtml(item.postmortem)}</pre>` : ''}
+            </article>
+        `).join('');
+    } catch (e) {
+        box.innerHTML = '<p>Could not load incidents.</p>';
+    }
+}
+
+async function runIncidentScenario(name) {
+    try {
+        await api(`/incidents/scenarios/${name}`, { method: 'POST', body: '{}' });
+        switchSection('incidents');
+        await loadIncidents();
+    } catch (e) {
+        showToast(e.message || 'Scenario failed', 'error');
+    }
+}
+
+async function approveIncident(id) {
+    try {
+        await api(`/incidents/${id}/approve`, { method: 'POST', body: '{}' });
+        await loadIncidents();
+    } catch (e) {
+        showToast(e.message || 'Approval failed', 'error');
+    }
+}
+
+function applyUiActions(actions) {
+    (actions || []).forEach(action => {
+        if (!action || !action.type) return;
+        try {
+            if (action.type === 'navigate' && action.section) {
+                switchSection(action.section);
+            } else if (action.type === 'search') {
+                const input = document.getElementById('searchInput');
+                const category = document.getElementById('searchCategory');
+                if (input && action.query != null) input.value = action.query;
+                if (category && action.category) category.value = action.category;
+                switchSection('products');
+                searchProducts();
+            } else if (action.type === 'filter_category') {
+                switchSection('products');
+                filterCategory(action.category || 'all');
+            } else if (action.type === 'switch_algo') {
+                switchSection('recommendations');
+                switchAlgoTab(action.algo || 'collaborative');
+            } else if (action.type === 'open_cart') {
+                const sidebar = document.getElementById('cartSidebar');
+                if (sidebar && !sidebar.classList.contains('open')) toggleCart();
+                else loadCart();
+            } else if (action.type === 'close_cart') {
+                document.getElementById('cartSidebar')?.classList.remove('open');
+                if (typeof syncOverlay === 'function') syncOverlay();
+            } else if (action.type === 'checkout') {
+                proceedToCheckout();
+            } else if (action.type === 'show_product' && action.product_id) {
+                switchSection('recommendations');
+                onProductClick(Number(action.product_id), 'chatbot');
+            } else if (action.type === 'summarize_reviews' && action.product_id && typeof summarizeReviews === 'function') {
+                summarizeReviews(Number(action.product_id));
+            } else if (action.type === 'refresh_cart') {
+                loadCart();
+            }
+        } catch (e) {
+            console.error('Site action failed', action, e);
+        }
+    });
+}
 
 async function loadUsers() {
     try {
@@ -78,10 +254,10 @@ async function loadHeroStats() {
         document.getElementById('heroProducts').textContent = (products.total || 0).toLocaleString();
 
         const users = state.users;
-        document.getElementById('heroUsers').textContent = users.length || '—';
+        document.getElementById('heroUsers').textContent = users.length || '-';
 
         const totalReviews = users.reduce((sum, u) => sum + (u.review_count || 0), 0);
-        document.getElementById('heroReviews').textContent = totalReviews.toLocaleString() || '—';
+        document.getElementById('heroReviews').textContent = totalReviews.toLocaleString() || '-';
     } catch (e) { /* Stats will show defaults */ }
 }
 
@@ -124,6 +300,11 @@ function switchSection(section) {
 
     document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
     document.getElementById(`section-${section}`).classList.add('active');
+    if (document.documentElement.dataset.form === 'phone') {
+        document.getElementById('chatPanel')?.classList.remove('open');
+        document.getElementById('cartSidebar')?.classList.remove('open');
+    }
+    if (typeof syncOverlay === 'function') syncOverlay();
 
     if (section === 'products' && !document.getElementById('productsContainer').dataset.loaded) {
         loadProducts();
@@ -131,16 +312,26 @@ function switchSection(section) {
     if (section === 'analytics') loadAnalytics();
     if (section === 'abtest') loadABTestResults();
     if (section === 'admin') loadAdminStats();
+    if (section === 'incidents' && typeof loadIncidents === 'function') loadIncidents();
 }
 
 // ========== User Selection ==========
 function onUserChange() {
     const select = document.getElementById('userSelect');
     const userId = parseInt(select.value);
-    if (!userId) { state.currentUser = null; return; }
+    const previous = state.currentUser;
+    if (!userId) {
+        state.currentUser = null;
+        return;
+    }
+    if (previous && previous !== userId && typeof snapshotChatForUser === 'function') {
+        snapshotChatForUser(previous);
+    }
     state.currentUser = userId;
     loadRecommendations();
     loadCart();
+    if (typeof loadChatForUser === 'function') loadChatForUser(userId);
+    if (typeof refreshDealAlerts === 'function') refreshDealAlerts();
 }
 
 // ========== Recommendation Tabs ==========
@@ -444,7 +635,9 @@ function cartUserId() {
 function applyCartUpdate(updatedCart) {
     cart = updatedCart;
     document.getElementById('cartCountBadge').innerText = cart.item_count;
-    if (document.getElementById('cartSidebar').style.right === '0px') {
+    const savingsEl = document.getElementById('cartSavingsTotal');
+    if (savingsEl) savingsEl.innerText = `$${(cart.savings || 0).toFixed(2)}`;
+    if (document.getElementById('cartSidebar').classList.contains('open')) {
         renderCart();
     }
 }
@@ -459,12 +652,18 @@ async function loadCart() {
 
 function toggleCart() {
     const sidebar = document.getElementById('cartSidebar');
-    if (sidebar.style.right === '0px') {
-        sidebar.style.right = '-470px';
-    } else {
-        sidebar.style.right = '0px';
+    const open = !sidebar.classList.contains('open');
+    sidebar.classList.toggle('open', open);
+    if (open) {
+        document.getElementById('chatPanel')?.classList.remove('open');
+        document.getElementById('chatToggle')?.classList.remove('is-open');
+        const icon = document.querySelector('#chatToggle .chatbot-toggle-icon');
+        const label = document.querySelector('#chatToggle .chatbot-toggle-label');
+        if (icon) icon.textContent = '💬';
+        if (label) label.textContent = 'Chat Agent';
         renderCart();
     }
+    if (typeof syncOverlay === 'function') syncOverlay();
 }
 
 async function addToCart(productId, title) {
@@ -480,94 +679,112 @@ async function addToCart(productId, title) {
 
     showToast(`Added ${title} to cart!`);
 
-    // Open sidebar automatically
-    if (document.getElementById('cartSidebar').style.right !== '0px') {
+    if (!document.getElementById('cartSidebar').classList.contains('open')) {
         toggleCart();
     }
 }
 
 async function removeFromCart(productId) {
+    const pid = Number(productId);
+    if (!Number.isFinite(pid)) {
+        showToast('Invalid product to remove.', 'error');
+        return;
+    }
     try {
-        applyCartUpdate(await api(`/cart/${cartUserId()}/items/${productId}`, { method: 'DELETE' }));
+        const updated = await api(`/cart/${cartUserId()}/items/${pid}`, { method: 'DELETE' });
+        applyCartUpdate(updated);
+        renderCart();
+        showToast('Removed from cart');
     } catch (e) {
-        showToast('Could not remove that item.', 'error');
+        showToast(e.message || 'Could not remove that item.', 'error');
     }
 }
 
 async function renderCart() {
     const cartItemsDiv = document.getElementById('cartItems');
     const subtotalEl = document.getElementById('cartSubtotal');
-    
+    const savingsEl = document.getElementById('cartSavingsTotal');
+
     if (cart.items.length === 0) {
         cartItemsDiv.innerHTML = '<div class="empty-state"><p>Your cart is empty.</p></div>';
         subtotalEl.innerText = '$0.00';
-        document.getElementById('cartRecsContainer').innerHTML = '<p style="font-size:0.75rem; color:var(--text-light);">Add items to cart to see recommendations.</p>';
+        if (savingsEl) savingsEl.innerText = '$0.00';
+        document.getElementById('cartRecsContainer').innerHTML = '<p class="cart-recs-empty">Add items to see recommendations.</p>';
         return;
     }
-    
+
     let html = '';
-    
     cart.items.forEach(item => {
+        const price = Number(item.price) || 0;
+        const pid = Number(item.product_id);
         html += `
-            <div style="display:flex; gap:12px; background:white; padding:12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                <img src="${item.image_url || 'https://via.placeholder.com/50'}" style="width:50px; height:50px; object-fit:contain;" />
-                <div style="flex:1;">
-                    <div style="font-weight:500; font-size:0.9rem; line-height:1.2; margin-bottom:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${escapeHtml(item.title)}</div>
-                    <div style="font-size:0.85rem; color:var(--text-medium);">Qty: ${item.quantity} | <span style="color:var(--amazon-red); font-weight:bold;">$${item.price.toFixed(2)}</span></div>
+            <div class="cart-line-item">
+                <img src="${item.image_url || 'https://via.placeholder.com/50'}" alt="" />
+                <div class="cart-line-body">
+                    <div class="cart-line-title">${escapeHtml(item.title)}</div>
+                    <div class="cart-line-meta">Qty ${item.quantity} · <strong>$${price.toFixed(2)}</strong></div>
                 </div>
-                <button onclick="removeFromCart(${item.product_id})" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:1.2rem; align-self:center;">🗑️</button>
+                <button type="button" class="cart-remove" data-product-id="${pid}">Remove</button>
             </div>
         `;
     });
-    
-    if (cart.savings > 0) {
-        html += `<div style="font-size:0.85rem; color:var(--amazon-green); font-weight:600; text-align:right;">You're saving $${cart.savings.toFixed(2)} vs. list price</div>`;
-    }
 
     cartItemsDiv.innerHTML = html;
-    subtotalEl.innerText = `$${cart.subtotal.toFixed(2)}`;
-    
-    // Fetch Frequently Bought Together
+    cartItemsDiv.querySelectorAll('.cart-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            removeFromCart(btn.getAttribute('data-product-id'));
+        });
+    });
+    subtotalEl.innerText = `$${(cart.subtotal || 0).toFixed(2)}`;
+    if (savingsEl) savingsEl.innerText = `$${(cart.savings || 0).toFixed(2)}`;
+
     fetchCartRecommendations();
 }
 
 async function fetchCartRecommendations() {
     const recsContainer = document.getElementById('cartRecsContainer');
-    recsContainer.innerHTML = '<p style="font-size:0.75rem; color:var(--text-light);">Loading recommendations...</p>';
-    
+    if (!recsContainer) return;
+    recsContainer.innerHTML = '<p class="cart-recs-empty">Loading recommendations...</p>';
+
     try {
-        const productIds = cart.items.map(i => i.product_id);
-        const res = await fetch(`${API_BASE_URL}/recommend/cart?n=4`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_ids: productIds })
-        });
-        
-        if (!res.ok) throw new Error("Failed to fetch cart recs");
-        
-        const data = await res.json();
-        
-        if (!data.recommendations || data.recommendations.length === 0) {
-            recsContainer.innerHTML = '<p style="font-size:0.75rem; color:var(--text-light);">No recommendations available.</p>';
+        const productIds = cart.items.map(i => Number(i.product_id)).filter(Number.isFinite);
+        let recs = [];
+        try {
+            const data = await api(`/recommend/cart?n=4`, {
+                method: 'POST',
+                body: JSON.stringify({ product_ids: productIds }),
+            });
+            recs = data.recommendations || [];
+        } catch (_) {
+            if (productIds.length) {
+                const data = await api(`/recommend/also-bought/${productIds[0]}?n=4`);
+                recs = data.recommendations || data.products || (Array.isArray(data) ? data : []);
+            }
+        }
+
+        if (!recs.length) {
+            recsContainer.innerHTML = '<p class="cart-recs-empty">No recommendations available.</p>';
             return;
         }
-        
+
         let html = '';
-        data.recommendations.forEach(rec => {
+        recs.forEach(rec => {
+            const price = Number(rec.price) || 0;
             html += `
-                <div style="display:flex; gap:8px; align-items:center; background:white; padding:8px; border-radius:4px; border:1px solid var(--border-light); cursor:pointer;" onclick="onProductClick(${rec.product_id}, 'also_bought')">
-                    <img src="${rec.image_url || 'https://via.placeholder.com/40'}" style="width:40px; height:40px; object-fit:contain;" />
-                    <div style="flex:1;">
-                        <div style="font-size:0.8rem; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${escapeHtml(rec.title)}</div>
-                        <div style="color:var(--amazon-red); font-weight:bold; font-size:0.8rem;">$${rec.price.toFixed(2)}</div>
+                <div class="cart-rec-row" onclick="onProductClick(${rec.product_id}, 'also_bought')">
+                    <img src="${rec.image_url || 'https://via.placeholder.com/40'}" alt="" />
+                    <div class="cart-rec-body">
+                        <div class="cart-rec-title">${escapeHtml(rec.title || '')}</div>
+                        <div class="cart-rec-price">$${price.toFixed(2)}</div>
                     </div>
                 </div>
             `;
         });
-        
         recsContainer.innerHTML = html;
     } catch (e) {
         console.error(e);
-        recsContainer.innerHTML = '<p style="font-size:0.75rem; color:var(--amazon-red);">Could not load recommendations.</p>';
+        recsContainer.innerHTML = '<p class="cart-recs-error">Recommendations unavailable right now.</p>';
     }
 }
