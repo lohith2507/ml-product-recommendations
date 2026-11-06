@@ -11,19 +11,26 @@ from recommenders.store import get_facts_store
 
 
 def upsert_price(product_id: int, price: float, list_price: float | None = None, warehouse_id: str = "default"):
+    """Write or refresh the live price (and optional list price) for a product."""
     get_facts_store().upsert_price(product_id, price, list_price, warehouse_id)
 
 
 def upsert_stock(product_id: int, quantity: int, warehouse_id: str = "default"):
+    """Write or refresh the live stock quantity for a product."""
     get_facts_store().upsert_stock(product_id, quantity, warehouse_id)
 
 
 def get_facts(product_ids: list[int], warehouse_id: str = "default") -> dict[int, dict]:
+    """Return a map of product_id -> {price, list_price, stock_qty, updated_at} for the given ids.
+
+    Missing ids are omitted. Quantities and prices come from the active facts store
+    (Firestore when enabled, otherwise the local SQLite stand-in).
+    """
     return get_facts_store().get_facts([int(i) for i in product_ids], warehouse_id=warehouse_id)
 
 
 def apply_live_facts(products: list[dict], warehouse_id: str = "default") -> list[dict]:
-    """Overlay live price/stock onto product dicts."""
+    """Overlay live price/stock onto product dicts; compute savings when list_price > price."""
     facts = get_facts([p["product_id"] for p in products], warehouse_id=warehouse_id)
     enriched = []
     for product in products:
