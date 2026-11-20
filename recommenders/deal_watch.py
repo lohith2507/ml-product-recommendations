@@ -77,6 +77,22 @@ def watch_product(user_id: int, product_id: int, target_price: float | None = No
     return entry
 
 
+def stop_watching(user_id: int, product_id: int):
+    if firestore_enabled():
+        from recommenders.firestore_client import collection
+        from google.cloud import firestore as fs
+
+        ref = collection("deal_watches").document(str(user_id))
+        ref.update({f"items.{product_id}": fs.DELETE_FIELD, "updated_at": _now()})
+    else:
+        with _lock:
+            data = _load(_local_path())
+            bag = data.get(str(user_id), {})
+            if str(product_id) in bag:
+                del bag[str(product_id)]
+                _save(_local_path(), data)
+
+
 def list_watches(user_id: int) -> list[dict]:
     if firestore_enabled():
         from recommenders.firestore_client import collection
