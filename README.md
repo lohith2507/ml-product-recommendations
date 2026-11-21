@@ -70,7 +70,7 @@ uvicorn app:app --reload --port 8000
 ```
 
 ### 6. Open Dashboard
-Visit [http://localhost:8000](http://localhost:8000)
+Once Uvicorn logs that application startup is complete, visit [http://localhost:8000](http://localhost:8000)
 
 API docs at [http://localhost:8000/docs](http://localhost:8000/docs)
 
